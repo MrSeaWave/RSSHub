@@ -28607,9 +28607,15 @@
             "requireConfig": false,
             "requirePuppeteer": false,
             "antiCrawler": false,
+            "supportRadar": true,
             "supportBT": false,
             "supportPodcast": false,
             "supportScihub": false
+          },
+          "radar": {
+            "source": [
+              "mmda.booru.org/index.php"
+            ]
           },
           "name": "MMDArchive 标签查询",
           "maintainers": [
@@ -48903,6 +48909,30 @@
         }
       },
       "name": "Paul Graham"
+    },
+    "pianyivps": {
+      "routes": {
+        "/pianyivps/": {
+          "path": "/",
+          "categories": [
+            "blog"
+          ],
+          "radar": [
+            {
+              "source": [
+                "pianyivps.com/"
+              ]
+            }
+          ],
+          "name": "最新发布",
+          "maintainers": [
+            "cnkmmk"
+          ],
+          "url": "pianyivps.com/",
+          "location": "rss.ts"
+        }
+      },
+      "name": "便宜VPS网"
     },
     "uber": {
       "routes": {
