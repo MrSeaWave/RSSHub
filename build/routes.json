@@ -1095,6 +1095,53 @@
     "name": "一亩三分地",
     "url": "blog.1point3acres.com"
   },
+  "1x": {
+    "routes": {
+      "/:category{.+}?": {
+        "path": "/:category{.+}?",
+        "name": "Gallery",
+        "url": "1x.com",
+        "maintainers": [
+          "nczitzk"
+        ],
+        "example": "/1x/latest/awarded",
+        "parameters": {
+          "category": "Category, Latest Awarded by default"
+        },
+        "description": "::: tip\nFill in the field in the path with the part of the corresponding page URL after `https://1x.com/gallery/` or `https://1x.com/photo/`. Here are the examples:\n\nIf you subscribe to [Abstract Awarded](https://1x.com/gallery/abstract/awarded), you should fill in the path with the part `abstract/awarded` from the page URL `https://1x.com/gallery/abstract/awarded`. In this case, the route will be [`/1x/abstract/awarded`](https://rsshub.app/1x/abstract/awarded).\n    \nIf you subscribe to [Wildlife Published](https://1x.com/gallery/wildlife/published), you should fill in the path with the part `wildlife/published` from the page URL `https://1x.com/gallery/wildlife/published`. In this case, the route will be [`/1x/wildlife/published`](https://rsshub.app/1x/wildlife/published).\n:::",
+        "categories": [
+          "design",
+          "picture"
+        ],
+        "features": {
+          "requireConfig": false,
+          "requirePuppeteer": false,
+          "antiCrawler": false,
+          "supportRadar": true,
+          "supportBT": false,
+          "supportPodcast": false,
+          "supportScihub": false
+        },
+        "radar": [
+          {
+            "source": [
+              "/gallery/:category*",
+              "/photos/:category*"
+            ],
+            "target": "/1x/:category"
+          }
+        ],
+        "location": "index.ts"
+      }
+    },
+    "name": "1x.com",
+    "url": "1x.com",
+    "categories": [
+      "design",
+      "picture"
+    ],
+    "description": "1x.com • In Pursuit of the Sublime. Browse 200,000 curated photos from photographers all over the world."
+  },
   "2023game": {
     "routes": {
       "/:category?/:tab?": {
@@ -4000,6 +4047,25 @@
     },
     "name": "App Store/Mac App Store",
     "url": "apps.apple.com"
+  },
+  "appstorrent": {
+    "routes": {
+      "/programs": {
+        "path": "/programs",
+        "categories": [
+          "program-update"
+        ],
+        "example": "/appstorrent/programs",
+        "name": "Programs",
+        "maintainers": [
+          "xzzpig"
+        ],
+        "url": "appstorrent.ru/programs/",
+        "location": "programs.ts"
+      }
+    },
+    "name": "AppsTorrent",
+    "url": "appstorrent.ru"
   },
   "aqara": {
     "routes": {
@@ -7427,6 +7493,31 @@
     },
     "name": "Blizzard",
     "url": "news.blizzard.com"
+  },
+  "blogread": {
+    "routes": {
+      "/newest": {
+        "path": "/newest",
+        "categories": [
+          "programming"
+        ],
+        "example": "/blogread/newest",
+        "radar": [
+          {
+            "source": [
+              "blogread.cn/news/newest.php"
+            ]
+          }
+        ],
+        "name": "最新文章",
+        "maintainers": [
+          "fashioncj"
+        ],
+        "location": "index.ts"
+      }
+    },
+    "name": "技术头条",
+    "url": "blogread.cn"
   },
   "bloomberg": {
     "routes": {
@@ -13534,6 +13625,32 @@
     },
     "name": "大眼仔旭",
     "url": "dayanzai.me"
+  },
+  "dbaplus": {
+    "routes": {
+      "/": {
+        "path": "/",
+        "categories": [
+          "programming"
+        ],
+        "example": "/dbaplus",
+        "radar": [
+          {
+            "source": [
+              "dbaplus.cn/"
+            ]
+          }
+        ],
+        "name": "最新文章",
+        "maintainers": [
+          "cnkmmk"
+        ],
+        "url": "dbaplus.cn/",
+        "location": "rss.ts"
+      }
+    },
+    "name": "dbaplus社群",
+    "url": "dbaplus.cn"
   },
   "dblp": {
     "routes": {
@@ -60935,7 +61052,12 @@
           "embed": "Default to embed the video, set to any value to disable embedding"
         },
         "features": {
-          "requireConfig": false,
+          "requireConfig": [
+            {
+              "name": "YOUTUBE_KEY",
+              "description": " YouTube API Key, support multiple keys, split them with `,`, [API Key application](https://console.developers.google.com/)"
+            }
+          ],
           "requirePuppeteer": false,
           "antiCrawler": false,
           "supportBT": false,
