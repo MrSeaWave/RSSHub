@@ -268,7 +268,13 @@
           "id": "歌单 id, 可在歌单页 URL 中找到"
         },
         "features": {
-          "requireConfig": false,
+          "requireConfig": [
+            {
+              "name": "NCM_COOKIES",
+              "optional": true,
+              "description": "网易云音乐登陆后的 cookie 值，可在浏览器控制台通过`document.cookie`获取。"
+            }
+          ],
           "requirePuppeteer": false,
           "antiCrawler": true,
           "supportBT": false,
@@ -326,7 +332,13 @@
           "type": "排行榜类型，0所有时间(默认)，1最近一周"
         },
         "features": {
-          "requireConfig": false,
+          "requireConfig": [
+            {
+              "name": "NCM_COOKIES",
+              "optional": true,
+              "description": "网易云音乐登陆后的 cookie 值，可在浏览器控制台通过`document.cookie`获取。"
+            }
+          ],
           "requirePuppeteer": false,
           "antiCrawler": false,
           "supportBT": false,
@@ -578,6 +590,36 @@
     },
     "name": "12306",
     "url": "kyfw.12306.cn"
+  },
+  "12371": {
+    "routes": {
+      "/:category?": {
+        "path": "/:category?",
+        "example": "/12371/zxfb",
+        "parameters": {
+          "category": "新闻分类名，预设 `zxfb`"
+        },
+        "radar": [
+          {
+            "source": [
+              "www.12371.cn/:category"
+            ]
+          }
+        ],
+        "name": "最新发布",
+        "maintainers": [
+          "zvrr"
+        ],
+        "url": "www.12371.cn",
+        "description": "| 最新发布 |\n    | :------: |\n    |   zxfb   |",
+        "location": "zxfb.ts"
+      }
+    },
+    "name": "共产党员网",
+    "url": "www.12371.cn",
+    "categories": [
+      "government"
+    ]
   },
   "005": {
     "routes": {
@@ -1645,6 +1687,32 @@
     },
     "name": "经济 50 人论坛",
     "url": "50forum.org.cn"
+  },
+  "51cto": {
+    "routes": {
+      "/index/recommend": {
+        "path": "/index/recommend",
+        "categories": [
+          "programming"
+        ],
+        "example": "/51cto/index/recommend",
+        "radar": [
+          {
+            "source": [
+              "51cto.com/"
+            ]
+          }
+        ],
+        "name": "推荐",
+        "maintainers": [
+          "cnkmmk"
+        ],
+        "url": "51cto.com/",
+        "location": "recommend.ts"
+      }
+    },
+    "name": "51CTO",
+    "url": "51cto.com"
   },
   "52hrtt": {
     "routes": {
@@ -4225,6 +4293,37 @@
     "name": "Aqara",
     "url": "aqara.com"
   },
+  "aqicn": {
+    "routes": {
+      "/:city/:pollution?": {
+        "path": "/:city/:pollution?",
+        "categories": [
+          "other"
+        ],
+        "example": "/aqicn/beijing/pm25",
+        "parameters": {
+          "city": "城市拼音或地区 ID，详见[aqicn.org](http://aqicn.org/city/)",
+          "pollution": "可选择显示更详细的空气污染成分"
+        },
+        "radar": [
+          {
+            "source": [
+              "aqicn.org"
+            ]
+          }
+        ],
+        "name": "实时 AQI",
+        "maintainers": [
+          "ladeng07"
+        ],
+        "url": "aqicn.org",
+        "descriptions": "\n|   参数   | 污染成分 |\n| -------- | -------- |\n|   pm25   |  PM2.5   |\n|   pm10   |  PM10    |\n|   o3     |  O3      |\n|   no2    |  NO2     |\n|   so2    |  SO2     |\n|   co     |  CO      |\n\n举例: [https://rsshub.app/aqicn/beijing/pm25,pm10](https://rsshub.app/aqicn/beijing/pm25,pm10)\n\n1. 显示单个污染成分，例如「pm25」, [https://rsshub.app/aqicn/beijing/pm25](https://rsshub.app/aqicn/beijing/pm25)\n2. 逗号分隔显示多个污染成分，例如「pm25,pm10」，[https://rsshub.app/aqicn/beijing/pm25,pm10](https://rsshub.app/aqicn/beijing/pm25,pm10)\n3. 城市子站 ID 获取方法：右键显示网页源代码，搜索 \"idx\" （带双冒号），后面的 ID 就是子站的 ID，如你给的链接 ID 是 4258，RSS 地址就是 [https://rsshub.app/aqicn/4258](https://rsshub.app/aqicn/4258)\n",
+        "location": "aqi.ts"
+      }
+    },
+    "name": "空气质量",
+    "url": "aqicn.org"
+  },
   "arcteryx": {
     "routes": {
       "/new-arrivals/:country/:gender": {
@@ -4992,7 +5091,7 @@
         "maintainers": [
           "JimenezLi"
         ],
-        "description": "| 键           | 含义                                                       | 接受的值      | 默认值 |\n  | ------------ | ---------------------------------------------------------- | ------------- | ------ |\n  | kw           | 在名为 kw 的贴吧中搜索                                     | 任意名称 / 无 | 无     |\n  | only_thread | 只看主题帖，默认为 0 关闭                                  | 0/1           | 0      |\n  | rn           | 返回条目的数量                                             | 1-20          | 20     |\n  | sm           | 排序方式，0 为按时间顺序，1 为按时间倒序，2 为按相关性顺序 | 0/1/2         | 1      |\n\n  用例：`/baidu/tieba/search/neuro/kw=neurosama&only_thread=1&sm=2`",
+        "description": "| 键           | 含义                                                       | 接受的值      | 默认值 |\n  | ------------ | ---------------------------------------------------------- | ------------- | ------ |\n  | kw           | 在名为 kw 的贴吧中搜索                                     | 任意名称 / 无 | 无     |\n  | only_thread  | 只看主题帖，默认为 0 关闭                                  | 0/1           | 0      |\n  | rn           | 返回条目的数量                                             | 1-20          | 20     |\n  | sm           | 排序方式，0 为按时间顺序，1 为按时间倒序，2 为按相关性顺序 | 0/1/2         | 1      |\n\n  用例：`/baidu/tieba/search/neuro/kw=neurosama&only_thread=1&sm=2`",
         "location": "tieba/search.ts"
       },
       "/tieba/user/:uid": {
@@ -5923,9 +6022,15 @@
           "routeParams": "额外参数；请参阅以下说明和表格"
         },
         "features": {
-          "requireConfig": false,
+          "requireConfig": [
+            {
+              "name": "BILIBILI_COOKIE_*",
+              "optional": true,
+              "description": "如果没有此配置，那么必须开启 puppeteer 支持；BILIBILI_COOKIE_{uid}: 用于用户关注动态系列路由，对应 uid 的 b 站用户登录后的 Cookie 值，`{uid}` 替换为 uid，如 `BILIBILI_COOKIE_2267573`，获取方式：\n1.  打开 [https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/dynamic_new?uid=0&type=8](https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/dynamic_new?uid=0&type=8)\n2.  打开控制台，切换到 Network 面板，刷新\n3.  点击 dynamic_new 请求，找到 Cookie\n4.  视频和专栏，UP 主粉丝及关注只要求 `SESSDATA` 字段，动态需复制整段 Cookie"
+            }
+          ],
           "requirePuppeteer": false,
-          "antiCrawler": false,
+          "antiCrawler": true,
           "supportBT": false,
           "supportPodcast": false,
           "supportScihub": false
@@ -6845,6 +6950,31 @@
     },
     "name": "Bilibili",
     "url": "www.bilibili.com"
+  },
+  "binance": {
+    "routes": {
+      "/launchpool": {
+        "path": "/launchpool",
+        "categories": [
+          "finance"
+        ],
+        "example": "/binance/launchpool",
+        "radar": [
+          {
+            "source": [
+              "binance.com/:lang/support/announcement"
+            ]
+          }
+        ],
+        "name": "Binance数字货币及交易对上新",
+        "maintainers": [
+          "zhenlohuang"
+        ],
+        "location": "launchpool.ts"
+      }
+    },
+    "name": "Binance",
+    "url": "binance.com"
   },
   "bing": {
     "routes": {
@@ -15325,6 +15455,43 @@
     "url": "m.dongqiudi.com",
     "description": ":::tip\n-   可以通过头条新闻 + 参数过滤的形式获得早报、专题等内容。\n:::"
   },
+  "dora-world": {
+    "routes": {
+      "/article/:topic/:topicId?": {
+        "path": "/article/:topic/:topicId?",
+        "categories": [
+          "anime"
+        ],
+        "example": "/dora-world/article/contents",
+        "parameters": {
+          "topic": "Topic name, can be found in URL. For example: the topic name of [https://www.dora-world.com/movie](https://www.dora-world.com/movie) is `movie`",
+          "topicId": "Topic id, can be found in URL. For example: the topic id of [https://www.dora-world.com/contents?t=197](https://www.dora-world.com/contents?t=197) is `197`"
+        },
+        "features": {
+          "requireConfig": false,
+          "requirePuppeteer": false,
+          "antiCrawler": false,
+          "supportBT": false,
+          "supportPodcast": false,
+          "supportScihub": false
+        },
+        "radar": [
+          {
+            "source": [
+              "www.dora-world.com/:topic"
+            ]
+          }
+        ],
+        "name": "Article",
+        "maintainers": [
+          "AChangAZha"
+        ],
+        "location": "article.ts"
+      }
+    },
+    "name": "Doraemon Channel",
+    "url": "www.dora-world.com"
+  },
   "dorohedoro": {
     "routes": {
       "/news": {
@@ -17572,6 +17739,41 @@
     },
     "name": "ePrice",
     "url": "eprice.com.tw"
+  },
+  "europechinese": {
+    "routes": {
+      "/latest": {
+        "path": "/latest",
+        "categories": [
+          "new-media"
+        ],
+        "example": "/europechinese/latest",
+        "parameters": {},
+        "features": {
+          "requireConfig": false,
+          "requirePuppeteer": false,
+          "antiCrawler": false,
+          "supportBT": false,
+          "supportPodcast": false,
+          "supportScihub": false
+        },
+        "radar": [
+          {
+            "source": [
+              "europechinese.blogspot.com"
+            ]
+          }
+        ],
+        "name": "最新",
+        "maintainers": [
+          "emdoe"
+        ],
+        "url": "europechinese.blogspot.com/",
+        "location": "latest.ts"
+      }
+    },
+    "name": "歐洲動態（國際）",
+    "url": "europechinese.blogspot.com"
   },
   "eventernote": {
     "routes": {
@@ -26822,6 +27024,212 @@
     "name": "环球网",
     "url": "huanqiu.com"
   },
+  "hubu": {
+    "routes": {
+      "/www/:category{.+}?": {
+        "path": "/www/:category{.+}?",
+        "name": "主页",
+        "url": "hubu.edu.cn",
+        "maintainers": [
+          "nczitzk"
+        ],
+        "example": "/hubu/www/index/tzgg",
+        "parameters": {
+          "category": "分类，可在对应分类页 URL 中找到，默认为[通知公告](https://www.hubu.edu.cn/index/tzgg.htm)"
+        },
+        "description": ":::tip\n  若订阅 [通知公告](https://www.hubu.edu.cn/index/tzgg.htm)，网址为 `https://www.hubu.edu.cn/index/tzgg.htm`。截取 `https://www.hubu.edu.cn/` 到末尾 `.htm` 的部分 `index/tzgg` 作为参数填入，此时路由为 [`/hubu/www/index/tzgg`](https://rsshub.app/hubu/www/index/tzgg)。\n  :::\n\n  | 通知公告   | 学术预告   |\n  | ---------- | ---------- |\n  | index/tzgg | index/xsyg |\n  ",
+        "categories": [
+          "university"
+        ],
+        "features": {
+          "requireConfig": false,
+          "requirePuppeteer": false,
+          "antiCrawler": false,
+          "supportRadar": true,
+          "supportBT": false,
+          "supportPodcast": false,
+          "supportScihub": false
+        },
+        "radar": [
+          {
+            "title": "通知公告",
+            "source": [
+              "hubu.edu.cn/index/tzgg.htm"
+            ],
+            "target": "/www/index/tzgg"
+          },
+          {
+            "title": "学术预告",
+            "source": [
+              "hubu.edu.cn/index/xsyg.htm"
+            ],
+            "target": "/www/index/xsyg"
+          }
+        ],
+        "location": "index.ts"
+      },
+      "/zhxy/:category{.+}?": {
+        "path": "/zhxy/:category{.+}?",
+        "name": "资源环境学院",
+        "url": "zhxy.hubu.edu.cn",
+        "maintainers": [
+          "nczitzk"
+        ],
+        "example": "/hubu/zhxy/index/tzgg",
+        "parameters": {
+          "category": "分类，可在对应分类页 URL 中找到，默认为[通知公告](https://zhxy.hubu.edu.cn/index/tzgg.htm)"
+        },
+        "description": ":::tip\n  若订阅 [通知公告](https://zhxy.hubu.edu.cn/index/tzgg.htm)，网址为 `https://zhxy.hubu.edu.cn/index/tzgg.htm`。截取 `https://zhxy.hubu.edu.cn/` 到末尾 `.htm` 的部分 `index/tzgg` 作为参数填入，此时路由为 [`/hubu/zhxy/index/tzgg`](https://rsshub.app/hubu/zhxy/index/tzgg)。\n  :::\n\n  | [通知公告](https://zhxy.hubu.edu.cn/index/tzgg.htm) | [新闻动态](https://zhxy.hubu.edu.cn/index/xwdt.htm) |\n  | --------------------------------------------------- | --------------------------------------------------- |\n  | index/tzgg                                          | index/xwdt                                          |  \n\n  #### [人才培养](https://zhxy.hubu.edu.cn/rcpy.htm)\n  \n  | [人才培养](https://zhxy.hubu.edu.cn/rcpy.htm) | [本科生教育](https://zhxy.hubu.edu.cn/rcpy/bksjy.htm) | [研究生教育](https://zhxy.hubu.edu.cn/rcpy/yjsjy.htm) | [招生与就业](https://zhxy.hubu.edu.cn/rcpy/zsyjy/zsxx.htm) |\n  | --------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------------- |\n  | rcpy                                          | rcpy/bksjy                                            | rcpy/yjsjy                                            | rcpy/zsyjy/zsxx                                            |\n  \n  #### [学科建设](https://zhxy.hubu.edu.cn/xkjianshe/zdxk.htm)\n  \n  | [学科建设](https://zhxy.hubu.edu.cn/xkjianshe/zdxk.htm) | [重点学科](https://zhxy.hubu.edu.cn/xkjianshe/zdxk.htm) | [硕士点](https://zhxy.hubu.edu.cn/xkjianshe/ssd.htm) | [博士点](https://zhxy.hubu.edu.cn/xkjianshe/bsd.htm) |\n  | ------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------- |\n  | xkjianshe/zdxk                                          | xkjianshe/zdxk                                          | xkjianshe/ssd                                        | xkjianshe/bsd                                        |\n  \n  #### [科研服务](https://zhxy.hubu.edu.cn/kyfw.htm)\n  \n  | [科研服务](https://zhxy.hubu.edu.cn/kyfw.htm) | [科研动态](https://zhxy.hubu.edu.cn/kyfw/kydongt.htm) | [学术交流](https://zhxy.hubu.edu.cn/kyfw/xsjl.htm) | [科研平台](https://zhxy.hubu.edu.cn/kyfw/keyapt.htm) | [社会服务](https://zhxy.hubu.edu.cn/kyfw/shfuw.htm) |\n  | --------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------- |\n  | kyfw                                          | kyfw/kydongt                                          | kyfw/xsjl                                          | kyfw/keyapt                                          | kyfw/shfuw                                          |\n  \n  #### [党群工作](https://zhxy.hubu.edu.cn/dqgz.htm)\n  \n  | [党群工作](https://zhxy.hubu.edu.cn/dqgz.htm) | [党建工作](https://zhxy.hubu.edu.cn/dqgz/djgz/jgdj.htm) | [工会工作](https://zhxy.hubu.edu.cn/dqgz/ghgon.htm) |\n  | --------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------- |\n  | dqgz                                          | dqgz/djgz/jgdj                                          | dqgz/ghgon                                          |\n  ",
+        "categories": [
+          "university"
+        ],
+        "features": {
+          "requireConfig": false,
+          "requirePuppeteer": false,
+          "antiCrawler": false,
+          "supportRadar": true,
+          "supportBT": false,
+          "supportPodcast": false,
+          "supportScihub": false
+        },
+        "radar": [
+          {
+            "title": "通知公告",
+            "source": [
+              "zhxy.hubu.edu.cn/index/tzgg.htm"
+            ],
+            "target": "/zhxy/index/tzgg"
+          },
+          {
+            "title": "新闻动态",
+            "source": [
+              "zhxy.hubu.edu.cn/index/xwdt.htm"
+            ],
+            "target": "/zhxy/index/xwdt"
+          },
+          {
+            "title": "人才培养",
+            "source": [
+              "zhxy.hubu.edu.cn/rcpy.htm"
+            ],
+            "target": "/zhxy/rcpy"
+          },
+          {
+            "title": "人才培养 - 本科生教育",
+            "source": [
+              "zhxy.hubu.edu.cn/rcpy/bksjy.htm"
+            ],
+            "target": "/zhxy/rcpy/bksjy"
+          },
+          {
+            "title": "人才培养 - 研究生教育",
+            "source": [
+              "zhxy.hubu.edu.cn/rcpy/yjsjy.htm"
+            ],
+            "target": "/zhxy/rcpy/yjsjy"
+          },
+          {
+            "title": "人才培养 - 招生与就业",
+            "source": [
+              "zhxy.hubu.edu.cn/rcpy/zsyjy/zsxx.htm"
+            ],
+            "target": "/zhxy/rcpy/zsyjy/zsxx"
+          },
+          {
+            "title": "学科建设",
+            "source": [
+              "zhxy.hubu.edu.cn/xkjianshe/zdxk.htm"
+            ],
+            "target": "/zhxy/xkjianshe/zdxk"
+          },
+          {
+            "title": "学科建设 - 重点学科",
+            "source": [
+              "zhxy.hubu.edu.cn/xkjianshe/zdxk.htm"
+            ],
+            "target": "/zhxy/xkjianshe/zdxk"
+          },
+          {
+            "title": "学科建设 - 硕士点",
+            "source": [
+              "zhxy.hubu.edu.cn/xkjianshe/ssd.htm"
+            ],
+            "target": "/zhxy/xkjianshe/ssd"
+          },
+          {
+            "title": "学科建设 - 博士点",
+            "source": [
+              "zhxy.hubu.edu.cn/xkjianshe/bsd.htm"
+            ],
+            "target": "/zhxy/xkjianshe/bsd"
+          },
+          {
+            "title": "科研服务",
+            "source": [
+              "zhxy.hubu.edu.cn/kyfw.htm"
+            ],
+            "target": "/zhxy/kyfw"
+          },
+          {
+            "title": "科研服务 - 科研动态",
+            "source": [
+              "zhxy.hubu.edu.cn/kyfw/kydongt.htm"
+            ],
+            "target": "/zhxy/kyfw/kydongt"
+          },
+          {
+            "title": "科研服务 - 学术交流",
+            "source": [
+              "zhxy.hubu.edu.cn/kyfw/xsjl.htm"
+            ],
+            "target": "/zhxy/kyfw/xsjl"
+          },
+          {
+            "title": "科研服务 - 科研平台",
+            "source": [
+              "zhxy.hubu.edu.cn/kyfw/keyapt.htm"
+            ],
+            "target": "/zhxy/kyfw/keyapt"
+          },
+          {
+            "title": "科研服务 - 社会服务",
+            "source": [
+              "zhxy.hubu.edu.cn/kyfw/shfuw.htm"
+            ],
+            "target": "/zhxy/kyfw/shfuw"
+          },
+          {
+            "title": "党群工作",
+            "source": [
+              "zhxy.hubu.edu.cn/dqgz.htm"
+            ],
+            "target": "/zhxy/dqgz"
+          },
+          {
+            "title": "党群工作 - 党建工作",
+            "source": [
+              "zhxy.hubu.edu.cn/dqgz/djgz/jgdj.htm"
+            ],
+            "target": "/zhxy/dqgz/djgz/jgdj"
+          },
+          {
+            "title": "党群工作 - 工会工作",
+            "source": [
+              "zhxy.hubu.edu.cn/dqgz/ghgon.htm"
+            ],
+            "target": "/zhxy/dqgz/ghgon"
+          }
+        ],
+        "location": "zhxy.ts"
+      }
+    },
+    "name": "湖北大学",
+    "url": "hubu.edu.cn",
+    "categories": [
+      "university"
+    ],
+    "description": ""
+  },
   "huggingface": {
     "routes": {
       "/blog-zh": {
@@ -27756,23 +28164,26 @@
   },
   "idaily": {
     "routes": {
-      "/today/:language?": {
-        "path": [
-          "/today/:language?",
-          "/:language?"
-        ],
-        "name": "Unknown",
-        "maintainers": [],
-        "description": "| 简体中文 | 繁体中文 |\n  | -------- | -------- |\n  | zh-hans  | zh-hant  |",
-        "location": "index.ts"
-      },
       "/:language?": {
         "path": [
-          "/today/:language?",
           "/:language?"
         ],
-        "name": "Unknown",
-        "maintainers": [],
+        "name": "每日环球视野",
+        "example": "/idaily",
+        "maintainers": [
+          "zphw",
+          "nczitzk"
+        ],
+        "parameters": {
+          "language": "语言，见下表，默认为简体中文"
+        },
+        "radar": [
+          {
+            "source": [
+              "idai.ly/"
+            ]
+          }
+        ],
         "description": "| 简体中文 | 繁体中文 |\n  | -------- | -------- |\n  | zh-hans  | zh-hant  |",
         "location": "index.ts"
       }
@@ -31040,6 +31451,29 @@
     "name": "Kantar Worldpanel",
     "url": "kantarworldpanel.com"
   },
+  "kanxue": {
+    "routes": {
+      "/topic/:category?/:type?": {
+        "path": "/topic/:category?/:type?",
+        "categories": [
+          "bbs"
+        ],
+        "example": "/kanxue/topic/android/digest",
+        "parameters": {
+          "category": "版块, 缺省为`all`",
+          "type": "类型, 缺省为`latest`"
+        },
+        "name": "论坛",
+        "maintainers": [
+          "renzhexigua"
+        ],
+        "description": "| 版块           | category  |\n    | -------------- | --------- |\n    | 智能设备       | iot       |\n    | Android 安全   | android   |\n    | iOS 安全       | ios       |\n    | HarmonyOS 安全 | harmonyos |\n    | 软件逆向       | re        |\n    | 编程技术       | coding    |\n    | 加壳脱壳       | unpack    |\n    | 密码应用       | crypto    |\n    | 二进制漏洞     | vuln      |\n    | CTF 对抗       | ctf       |\n    | Pwn            | pwn       |\n    | WEB 安全       | web       |\n    | 茶余饭后       | chat      |\n    | 极客空间       | geekzone  |\n    | 外文翻译       | translate |\n    | 全站           | all       |\n    \n    | 类型     | type   |\n    | -------- | ------ |\n    | 最新主题 | latest |\n    | 精华主题 | digest |",
+        "location": "topic.ts"
+      }
+    },
+    "name": "看雪",
+    "url": "kanxue.com"
+  },
   "kaopu": {
     "routes": {
       "/news/:language?": {
@@ -31301,7 +31735,7 @@
         "maintainers": [
           "nczitzk"
         ],
-        "description": "Sources\n\n  | Posts | Patreon | Pixiv Fanbox | Gumroad | SubscribeStar | DLsite | Discord | Fantia |\n  | ----- | ------- | ------------ | ------- | ------------- | ------ | ------- | ------ |\n  | posts | patreon | fanbox       | gumroad | subscribestar | dlsite | discord | fantia |\n\n  :::tip\n  When `posts` is selected as the value of the parameter **source**, the parameter **id** does not take effect.\n  :::",
+        "description": "Sources\n\n  | Posts | Patreon | Pixiv Fanbox | Gumroad | SubscribeStar | DLsite | Discord | Fantia |\n  | ----- | ------- | ------------ | ------- | ------------- | ------ | ------- | ------ |\n  | posts | patreon | fanbox       | gumroad | subscribestar | dlsite | discord | fantia |\n\n  :::tip\n  When `posts` is selected as the value of the parameter **source**, the parameter **id** does not take effect.\n  There is an optinal parameter **limit** which controls the number of posts to fetch, default value is 25.\n  :::",
         "location": "index.ts"
       }
     },
@@ -32280,14 +32714,6 @@
           "edition": "Edition, see table above",
           "id": "Channel ID, can be found in URL"
         },
-        "features": {
-          "requireConfig": false,
-          "requirePuppeteer": false,
-          "antiCrawler": false,
-          "supportBT": false,
-          "supportPodcast": false,
-          "supportScihub": false
-        },
         "radar": [
           {
             "source": [
@@ -32310,14 +32736,6 @@
         "parameters": {
           "edition": "Edition, see below, Taiwan by default",
           "tab": "Tag, can be found in URL, `top` by default"
-        },
-        "features": {
-          "requireConfig": false,
-          "requirePuppeteer": false,
-          "antiCrawler": false,
-          "supportBT": false,
-          "supportPodcast": false,
-          "supportScihub": false
         },
         "radar": [
           {
@@ -33145,6 +33563,47 @@
     },
     "name": "洛谷",
     "url": "luogu.com.cn"
+  },
+  "luolei": {
+    "routes": {
+      "/": {
+        "path": "/",
+        "name": "罗磊的独立博客",
+        "url": "luolei.org",
+        "maintainers": [
+          "nczitzk"
+        ],
+        "example": "/luolei",
+        "description": "",
+        "categories": [
+          "blog"
+        ],
+        "features": {
+          "requireConfig": false,
+          "requirePuppeteer": false,
+          "antiCrawler": false,
+          "supportRadar": true,
+          "supportBT": false,
+          "supportPodcast": false,
+          "supportScihub": false
+        },
+        "radar": [
+          {
+            "source": [
+              "luolei.org"
+            ],
+            "target": "/"
+          }
+        ],
+        "location": "index.ts"
+      }
+    },
+    "name": "罗磊的独立博客",
+    "url": "luolei.org",
+    "categories": [
+      "blog"
+    ],
+    "description": ""
   },
   "luxiangdong": {
     "routes": {
@@ -34316,6 +34775,75 @@
   },
   "minecraft": {
     "routes": {
+      "/blockedservers": {
+        "path": "/blockedservers",
+        "categories": [
+          "game"
+        ],
+        "example": "/minecraft/blockedservers",
+        "parameters": {},
+        "features": {
+          "requireConfig": false,
+          "requirePuppeteer": false,
+          "antiCrawler": false,
+          "supportBT": false,
+          "supportPodcast": false,
+          "supportScihub": false
+        },
+        "radar": [
+          {
+            "source": [
+              "minecraft.net/"
+            ]
+          }
+        ],
+        "name": "Java Blocked Servers",
+        "maintainers": [
+          "xtexChooser"
+        ],
+        "url": "minecraft.net/",
+        "description": "Java 版中被 Mojang 通过 sessionserver 阻止的服务器域名的 SHA-1 散列",
+        "zh": {
+          "name": "Java版被阻止的服务器域名散列"
+        },
+        "location": "blockedservers.ts"
+      },
+      "/java-runtime/:arch?/:javaType?": {
+        "path": "/java-runtime/:arch?/:javaType?",
+        "categories": [
+          "game"
+        ],
+        "example": "/minecraft/java-runtime",
+        "parameters": {
+          "arch": "Arch, `all` by default",
+          "javaType": "Java runtime type, `all` by default"
+        },
+        "features": {
+          "requireConfig": false,
+          "requirePuppeteer": false,
+          "antiCrawler": false,
+          "supportBT": false,
+          "supportPodcast": false,
+          "supportScihub": false
+        },
+        "radar": [
+          {
+            "source": [
+              "minecraft.net/"
+            ]
+          }
+        ],
+        "name": "Java Runtimes",
+        "maintainers": [
+          "xtexChooser"
+        ],
+        "url": "minecraft.net/",
+        "description": "\narch:\n\n- gamecore (Currently not used by Mojang)\n- linux\n- linux-i386\n- mac-os\n- mac-os-arm64\n- windows-arm64\n- windows-x64\n- windows-x86\n\njavaType:\n\n- java-runtime-alpha\n- java-runtime-beta\n- java-runtime-delta\n- java-runtime-gamma\n- java-runtime-gamma-snapshot\n- jre-legacy\n- minecraft-java-exe (Only on Windows)\n",
+        "zh": {
+          "name": "Java运行时"
+        },
+        "location": "java-runtime.ts"
+      },
       "/version/:versionType?/:linkType?": {
         "path": "/version/:versionType?/:linkType?",
         "categories": [
@@ -34938,12 +35466,14 @@
           "category": "分类，可在对应分类页 URL 中找到"
         },
         "features": {
-          "requireConfig": false,
-          "requirePuppeteer": false,
-          "antiCrawler": false,
-          "supportBT": false,
-          "supportPodcast": false,
-          "supportScihub": false
+          "requireConfig": [
+            {
+              "name": "MOX_COOKIE",
+              "optional": true,
+              "description": "注册用户登录后的 Cookie, 可以从浏览器开发者工具Network面板中的mox页面请求获取，Cookie内容形如VOLSKEY=xxxxxx; VLIBSID=xxxxxx; VOLSESS=xxxxxx"
+            }
+          ],
+          "antiCrawler": true
         },
         "radar": [
           {
@@ -34957,7 +35487,7 @@
         "maintainers": [
           "nczitzk"
         ],
-        "description": ":::tip\n  在首页将分类参数选择确定后跳转到的分类页面 URL 中，`/l/` 后的字段即为分类参数。\n\n  如 [科幻 + 日語 + 日本 + 長篇 + 完結 + 最近更新](https://mox.moe/l/CAT%2A科幻,日本,完結,lastupdate,jpn,l,BL) 的 URL 为 [https://mox.moe/l/CAT%2A 科幻，日本，完結，lastupdate,jpn,l,BL](https://mox.moe/l/CAT%2A科幻,日本,完結,lastupdate,jpn,l,BL)，此时 `/l/` 后的字段为 `CAT%2A科幻,日本,完結,lastupdate,jpn,l,BL`。最终获得路由为 [`/mox/CAT%2A科幻,日本,完結,lastupdate,jpn,l,BL`](https://rsshub.app/mox/CAT%2A科幻,日本,完結,lastupdate,jpn,l,BL)\n  :::",
+        "description": ":::tip\n  在首页将分类参数选择确定后跳转到的分类页面 URL 中，`/l/` 后的字段即为分类参数。\n\n  如 [科幻 + 日語 + 日本 + 長篇 + 完結 + 最近更新](https://mox.moe/l/CAT%2A科幻,日本,完結,lastupdate,jpn,l,BL) 的 URL 为 [https://mox.moe/l/CAT%2A 科幻，日本，完結，lastupdate,jpn,l,BL](https://mox.moe/l/CAT%2A科幻,日本,完結,lastupdate,jpn,l,BL)，此时 `/l/` 后的字段为 `CAT%2A科幻,日本,完結,lastupdate,jpn,l,BL`。最终获得路由为 [`/mox/CAT%2A科幻,日本,完結,lastupdate,jpn,l,BL`](https://rsshub.app/mox/CAT%2A科幻,日本,完結,lastupdate,jpn,l,BL)\n  :::\n\n  :::warning\n  由于 mox.moe 对非登录用户屏蔽了部分漫画详情内容的获取，且极易触发反爬机制，导致访问ip被重定向至google.com，因此在未配置`MOX_COOKIE`参数的情况下路由只会返回漫画标题和封面，不会对详情内容进行抓取。\n  :::",
         "location": "index.ts"
       }
     },
@@ -35982,6 +36512,33 @@
     },
     "name": "华北电力大学",
     "url": "yjsy.ncepu.edu.cn"
+  },
+  "ncpssd": {
+    "routes": {
+      "/newlist": {
+        "path": "/newlist",
+        "categories": [
+          "study"
+        ],
+        "example": "/ncpssd/newlist",
+        "radar": [
+          {
+            "source": [
+              "ncpssd.cn/",
+              "ncpssd.cn/newlist"
+            ]
+          }
+        ],
+        "name": "最新文献",
+        "maintainers": [
+          "LyleLee"
+        ],
+        "url": "ncpssd.cn/",
+        "location": "newlist.ts"
+      }
+    },
+    "name": "国家哲学社会科学文献中心",
+    "url": "ncpssd.cn"
   },
   "ncu": {
     "routes": {
@@ -39428,6 +39985,32 @@
     },
     "name": "Nyaa",
     "url": "nyaa.si"
+  },
+  "nymity": {
+    "routes": {
+      "/censorbib": {
+        "path": "/censorbib",
+        "categories": [
+          "journal"
+        ],
+        "example": "/nymity/censorbib",
+        "radar": [
+          {
+            "source": [
+              "censorbib.nymity.ch/"
+            ]
+          }
+        ],
+        "name": "CensorBib Updates",
+        "maintainers": [
+          "xtexChooser"
+        ],
+        "url": "censorbib.nymity.ch/",
+        "location": "censorbib.ts"
+      }
+    },
+    "name": "nymity",
+    "url": "censorbib.nymity.ch"
   },
   "nytimes": {
     "routes": {
@@ -45188,14 +45771,6 @@
         "parameters": {
           "lang": "Language, `zh` means Chinese docs, other values or null means English docs, `en` by default"
         },
-        "features": {
-          "requireConfig": false,
-          "requirePuppeteer": false,
-          "antiCrawler": false,
-          "supportBT": false,
-          "supportPodcast": false,
-          "supportScihub": false
-        },
         "radar": [
           {
             "source": [
@@ -48144,6 +48719,50 @@
     },
     "name": "ShopBack",
     "url": "shopback.com.tw"
+  },
+  "shopify": {
+    "routes": {
+      "/apps/:handle/reviews/:page?": {
+        "path": "/apps/:handle/reviews/:page?",
+        "example": "/shopify/apps/flow/reviews",
+        "parameters": {
+          "handle": "例如一个 App 的链接 https://apps.shopify.com/flow，其中 flow 就是指的是 handle"
+        },
+        "name": "App reviews",
+        "maintainers": [
+          "PrintNow"
+        ],
+        "radar": [
+          {
+            "source": [
+              "apps.shopify.com/:handle"
+            ]
+          }
+        ],
+        "location": "apps/[handle].reviews.ts"
+      },
+      "/apps/search/:q": {
+        "path": "/apps/search/:q",
+        "example": "/shopify/apps/search/flow",
+        "parameters": {
+          "q": "需要搜索的 App"
+        },
+        "name": "App store search",
+        "maintainers": [
+          "PrintNow"
+        ],
+        "radar": [
+          {
+            "source": [
+              "apps.shopify.com/search"
+            ]
+          }
+        ],
+        "location": "apps/search.ts"
+      }
+    },
+    "name": "Shopify",
+    "url": "shopify.com"
   },
   "shoppingdesign": {
     "routes": {
@@ -56623,6 +57242,39 @@
         "description": "| 信息 | 教学     | 考试 | 交流     |\n  | ---- | -------- | ---- | -------- |\n  | info | teaching | exam | exchange |",
         "location": "jwc.ts"
       },
+      "/math/:type?": {
+        "path": "/math/:type?",
+        "categories": [
+          "university"
+        ],
+        "example": "/ustc/math/tzgg",
+        "parameters": {
+          "type": "分类，见下表，默认为通知公告"
+        },
+        "features": {
+          "requireConfig": false,
+          "requirePuppeteer": false,
+          "antiCrawler": false,
+          "supportBT": false,
+          "supportPodcast": false,
+          "supportScihub": false
+        },
+        "radar": [
+          {
+            "source": [
+              "math.ustc.edu.cn/"
+            ],
+            "target": "/math"
+          }
+        ],
+        "name": "数学科学学院",
+        "maintainers": [
+          "ne0-wu"
+        ],
+        "url": "math.ustc.edu.cn/",
+        "description": "| 学院新闻 | 通知公告 | 学术交流 | 学术报告 |\n  | -------- | -------- | -------- | -------- |\n  | xyxw     | tzgg     | xsjl     | xsbg     |",
+        "location": "math.ts"
+      },
       "/sist/:type?": {
         "path": "/sist/:type?",
         "categories": [
@@ -57521,6 +58173,33 @@
     },
     "name": "War Thunder",
     "url": "warthunder.com"
+  },
+  "watasuke": {
+    "routes": {
+      "/blog": {
+        "path": "/blog",
+        "example": "/watasuke/blog",
+        "radar": [
+          {
+            "source": [
+              "watasuke.net/blog/",
+              "watasuke.net/"
+            ]
+          }
+        ],
+        "name": "Blog",
+        "maintainers": [
+          "honahuku"
+        ],
+        "url": "watasuke.net/blog/",
+        "location": "blog.ts"
+      }
+    },
+    "name": "Watasuke",
+    "url": "watasuke.net",
+    "categories": [
+      "blog"
+    ]
   },
   "wdc": {
     "routes": {
@@ -59377,8 +60056,63 @@
     "name": "盒心光环",
     "url": "xboxfan.com"
   },
+  "xianbao": {
+    "routes": {
+      "/:category?": {
+        "path": "/:category?",
+        "name": "线板酷",
+        "url": "new.xianbao.fun",
+        "maintainers": [
+          "nashi23"
+        ],
+        "example": "/xianbao",
+        "parameters": {
+          "category": "类别id，默认为：latest"
+        },
+        "description": "\n| 分类         | id             |\n| ------------ | -------------- |\n| 最新         | latest         |\n| 赚客吧       | zuankeba       |\n| 赚客吧热帖   | zuankeba-hot   |\n| 新赚吧       | xinzuanba      |\n| 新赚吧热帖   | xinzuanba-hot  |\n| 微博         | weibo          |\n| 微博热帖     | weibo-hot      |\n| 豆瓣线报     | douban         |\n| 豆瓣热帖     | douban-hot     |\n| 酷安         | kuan           |\n| 小嘀咕       | xiaodigu       |\n| 葫芦侠       | huluxia        |\n| 小刀娱乐网   | xiadao         |\n| 技术 QQ 网   | qqjishu        |\n| YYOK 大全    | yyok           |\n| 活动资讯网   | huodong        |\n| 免费赚钱中心 | maifei         |\n| 一小时       | yixiaoshi      |\n| 三小时       | sanxiaoshi     |\n| 六小时       | liuxiaoshi     |\n| 十二小时     | shierxiaoshi   |\n| 二十四小时   | ershisixiaoshi |\n| 四十八小时   | sishibaxiaoshi |\n| 今天         | jintian        |\n| 昨天         | zuotian        |\n| 前天         | qiantian       |\n| 三天         | santian        |\n| 五天         | wutian         |\n| 七天         | qitian         |\n| 十五天       | shiwutian      |",
+        "categories": [
+          "shopping"
+        ],
+        "features": {
+          "requireConfig": false,
+          "requirePuppeteer": false,
+          "antiCrawler": false,
+          "supportRadar": true,
+          "supportBT": false,
+          "supportPodcast": false,
+          "supportScihub": false
+        },
+        "radar": [
+          {
+            "source": [
+              "new.xianbao.fun"
+            ],
+            "target": "/"
+          }
+        ],
+        "location": "index.ts"
+      }
+    },
+    "name": "线报酷",
+    "url": "new.xianbao.fun"
+  },
   "xiaoheihe": {
     "routes": {
+      "/add2cart/:platform": {
+        "path": "/add2cart/:platform",
+        "categories": [
+          "game"
+        ],
+        "example": "/xiaoheihe/add2cart/epic",
+        "parameters": {
+          "platform": "平台名：epic、steam或gog"
+        },
+        "name": "喜加一",
+        "maintainers": [
+          "ladeng07"
+        ],
+        "location": "add2cart.ts"
+      },
       "/discount/:platform": {
         "path": "/discount/:platform",
         "categories": [
@@ -60436,6 +61170,35 @@
         "description": "| 公告         | 新闻 | 研报     |\n  | ------------ | ---- | -------- |\n  | announcement | news | research |",
         "location": "stock-info.ts"
       },
+      "/timeline/:usergroup_id?": {
+        "path": "/timeline/:usergroup_id?",
+        "categories": [
+          "finance"
+        ],
+        "example": "/xueqiu/timeline/",
+        "parameters": {
+          "usergroup_id": "用户组 ID，-1 为全部关注用户"
+        },
+        "features": {
+          "requireConfig": [
+            {
+              "name": "XUEQIU_COOKIES",
+              "description": ""
+            }
+          ],
+          "requirePuppeteer": false,
+          "antiCrawler": true,
+          "supportBT": false,
+          "supportPodcast": false,
+          "supportScihub": false
+        },
+        "name": "用户关注时间线",
+        "maintainers": [
+          "ErnestDong"
+        ],
+        "description": ":::warning\n  用户关注动态需要登录后的 Cookie 值，所以只能自建，详情见部署页面的配置模块。\n  :::\n\n  | -1   | -2       | 1             |\n  | ---- | -------- | ------------- |\n  | 全部 | 关注精选 | 自定义第 1 组 |",
+        "location": "timeline.ts"
+      },
       "/today": {
         "path": "/today",
         "categories": [
@@ -60717,6 +61480,36 @@
     },
     "name": "Yahoo",
     "url": "hk.news.yahoo.com"
+  },
+  "yande": {
+    "routes": {
+      "/post/popular_recent/:period?": {
+        "path": "/post/popular_recent/:period?",
+        "categories": [
+          "anime"
+        ],
+        "example": "/yande/post/popular_recent/1d",
+        "parameters": {
+          "period": "展示时间"
+        },
+        "radar": [
+          {
+            "source": [
+              "yande.re/post/"
+            ]
+          }
+        ],
+        "name": "posts",
+        "maintainers": [
+          "fashioncj"
+        ],
+        "description": "| 最近 24 小时    | 最近一周     | 最近一月    | 最近一年     | \n  | ------- | -------- | ------- | -------- | \n  | 1d | 1w | 1m ｜1y｜",
+        "location": "post.ts"
+      }
+    },
+    "name": "yande",
+    "url": "yande.re",
+    "description": "yande post"
   },
   "yangtzeu": {
     "routes": {
@@ -61390,14 +62183,6 @@
           "country": "Country Code, see table below, default to global",
           "embed": "Default to embed the video, set to any value to disable embedding"
         },
-        "features": {
-          "requireConfig": false,
-          "requirePuppeteer": false,
-          "antiCrawler": false,
-          "supportBT": false,
-          "supportPodcast": false,
-          "supportScihub": false
-        },
         "name": "Music Charts",
         "maintainers": [
           "TonyRL"
@@ -61414,14 +62199,6 @@
         "parameters": {
           "handle": "YouTube handles or channel id"
         },
-        "features": {
-          "requireConfig": false,
-          "requirePuppeteer": false,
-          "antiCrawler": false,
-          "supportBT": false,
-          "supportPodcast": false,
-          "supportScihub": false
-        },
         "name": "Community",
         "maintainers": [
           "TonyRL"
@@ -61430,6 +62207,14 @@
       },
       "/c/:username/:embed?": {
         "path": "/c/:username/:embed?",
+        "categories": [
+          "social-media"
+        ],
+        "example": "/youtube/c/YouTubeCreators",
+        "parameters": {
+          "username": "YouTube custom URL",
+          "embed": "Default to embed the video, set to any value to disable embedding"
+        },
         "radar": [
           {
             "source": [
@@ -61438,8 +62223,10 @@
             "target": "/c/:id"
           }
         ],
-        "name": "Unknown",
-        "maintainers": [],
+        "name": "Custom URL",
+        "maintainers": [
+          "TonyRL"
+        ],
         "location": "custom.ts"
       },
       "/live/:username/:embed?": {
@@ -61517,12 +62304,7 @@
               "name": "YOUTUBE_REFRESH_TOKEN",
               "description": ""
             }
-          ],
-          "requirePuppeteer": false,
-          "antiCrawler": false,
-          "supportBT": false,
-          "supportPodcast": false,
-          "supportScihub": false
+          ]
         },
         "radar": [
           {
