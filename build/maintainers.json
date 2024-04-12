@@ -1782,6 +1782,9 @@
   "/eprice/:region?": [
     "TonyRL"
   ],
+  "/esquirehk/tag/:id?": [
+    "nczitzk"
+  ],
   "/europechinese/latest": [
     "emdoe"
   ],
@@ -6131,7 +6134,9 @@
   "/xinpianchang/rank/:category?": [
     "nczitzk"
   ],
-  "/xjtu/dean/:subpath{.+}": [],
+  "/xjtu/dean/:subpath{.+}": [
+    "hoilc"
+  ],
   "/xjtu/ee/:id?": [
     "DylanXie123"
   ],
