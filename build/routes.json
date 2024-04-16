@@ -19623,35 +19623,6 @@
     "name": "自由微信",
     "url": "freewechat.com"
   },
-  "freexcomic": {
-    "routes": {
-      "/book/:id": {
-        "path": "/book/:id",
-        "example": "/freexcomic/book/90",
-        "parameters": {
-          "id": "漫画id，漫画主页的地址栏中"
-        },
-        "radar": [
-          {
-            "source": [
-              "www.jjmhw.cc/book/:id"
-            ]
-          }
-        ],
-        "name": "漫画更新",
-        "maintainers": [
-          "junfengP"
-        ],
-        "url": "www.jjmhw.cc",
-        "location": "book.ts"
-      }
-    },
-    "name": "漫小肆韓漫",
-    "url": "freexcomic.com",
-    "categories": [
-      "anime"
-    ]
-  },
   "ft": {
     "routes": {
       "/:language/:channel?": {
@@ -22537,38 +22508,6 @@
         ],
         "description": "| 通知公告 | 中心工作动态 | 地方工作动态 | 监测信息 | 分析预测 | 调查报告 |\n  | -------- | ------------ | ------------ | -------- | -------- | -------- |\n  | 692      | 693          | 694          | 695      | 696      | 697      |\n\n  | 价格指数 | 地方价格监测 | 价格监测报告制度 | 监测法规 | 媒体聚焦 |\n  | -------- | ------------ | ---------------- | -------- | -------- |\n  | 698      | 699          | 700              | 701      | 753      |\n\n  #### 监测信息\n\n  | 国内外市场价格监测情况周报 | 主要粮油副食品日报 | 生猪出厂价与玉米价格周报 | 国际市场石油价格每日 动态 |\n  | -------------------------- | ------------------ | ------------------------ | ------------------------- |\n  | 749                        | 703                | 704                      | 705                       |\n\n  | 非学科类培训服务价格 | 监测周期价格动态 | 月度监测行情表 | 猪料、鸡料、蛋料比价 |\n  | -------------------- | ---------------- | -------------- | -------------------- |\n  | 821                  | 706              | 707            | 708                  |",
         "location": "jgjcndrc/index.ts"
-      },
-      "/jiangsu/wlt/:page?": {
-        "path": "/jiangsu/wlt/:page?",
-        "categories": [
-          "government"
-        ],
-        "example": "/gov/jiangsu/wlt",
-        "parameters": {
-          "page": "页数，默认第 1 页"
-        },
-        "features": {
-          "requireConfig": false,
-          "requirePuppeteer": false,
-          "antiCrawler": false,
-          "supportBT": false,
-          "supportPodcast": false,
-          "supportScihub": false
-        },
-        "radar": [
-          {
-            "source": [
-              "wlt.jiangsu.gov.cn/"
-            ],
-            "target": "/jiangsu/wlt"
-          }
-        ],
-        "name": "江苏文旅局审批公告",
-        "maintainers": [
-          "GideonSenku"
-        ],
-        "url": "wlt.jiangsu.gov.cn/",
-        "location": "jiangsu/wlt/index.ts"
       },
       "/jinan/healthcommission/medical_exam_notice": {
         "path": "/jinan/healthcommission/medical_exam_notice",
@@ -35398,23 +35337,11 @@
           "supportPodcast": true,
           "supportScihub": false
         },
-        "radar": [
-          {
-            "source": [
-              "mixcloud.com/:username/:type?"
-            ]
-          },
-          {
-            "source": [
-              "www.mixcloud.com/:username/:type?"
-            ]
-          }
-        ],
         "name": "User",
         "maintainers": [
           "Misaka13514"
         ],
-        "description": "| Shows   | Reposts | Favorites | History | Stream |\n  | ------- | ------- | --------- | ------- | ------ |\n  | uploads | reposts | favorites | listens | stream |",
+        "description": "| Shows   | Favorites | History | Stream |\n  | ------- | --------- | ------- | ------ |\n  | uploads | favorites | listens | stream |",
         "location": "index.ts"
       }
     },
@@ -38563,35 +38490,6 @@
     },
     "name": "南京中医药大学",
     "url": "lib.njucm.edu.cn"
-  },
-  "njuferret": {
-    "routes": {
-      "/blog": {
-        "path": "/blog",
-        "categories": [
-          "blog"
-        ],
-        "example": "/njuferret/blog",
-        "radar": [
-          {
-            "source": [
-              "njuferret.github.io"
-            ]
-          }
-        ],
-        "name": "Blogs",
-        "maintainers": [
-          "tyl0622"
-        ],
-        "location": "blog.ts"
-      }
-    },
-    "name": "njuferret",
-    "url": "njuferret.github.io",
-    "description": "",
-    "zh": {
-      "name": "有点博客"
-    }
   },
   "njupt": {
     "routes": {
@@ -41845,67 +41743,13 @@
     "routes": {
       "/:category{.+}?": {
         "path": "/:category{.+}?",
-        "name": "Topic",
-        "url": "papers.cool",
-        "maintainers": [
-          "nczitzk"
-        ],
-        "example": "/papers/arxiv/cs.AI",
-        "parameters": {
-          "category": "Category, arXiv Artificial Intelligence (cs.AI) by default"
-        },
-        "description": ":::tip\n  If you subscribe to [arXiv Artificial Intelligence (cs.AI)](https://papers.cool/arxiv/cs.AI)，where the URL is `https://papers.cool/arxiv/cs.AI`, extract the part `https://papers.cool/` to the end, and use it as the parameter to fill in. Therefore, the route will be [`/papers/arxiv/cs.AI`](https://rsshub.app/papers/arxiv/cs.AI).\n  :::\n\n  | Category                                              | id          |\n  | ----------------------------------------------------- | ----------- |\n  | arXiv Artificial Intelligence (cs.AI)                 | arxiv/cs.AI |\n  | arXiv Computation and Language (cs.CL)                | arxiv/cs.CL |\n  | arXiv Computer Vision and Pattern Recognition (cs.CV) | arxiv/cs.CV |\n  | arXiv Machine Learning (cs.LG)                        | arxiv/cs.LG |\n  ",
-        "categories": [
-          "journal"
-        ],
-        "features": {
-          "requireConfig": false,
-          "requirePuppeteer": false,
-          "antiCrawler": false,
-          "supportRadar": true,
-          "supportBT": false,
-          "supportPodcast": false,
-          "supportScihub": true
-        },
-        "radar": [
-          {
-            "title": "arXiv Artificial Intelligence (cs.AI)",
-            "source": [
-              "papers.cool/arxiv/cs.AI"
-            ],
-            "target": "/arxiv/cs.AI"
-          },
-          {
-            "title": "arXiv Computation and Language (cs.CL)",
-            "source": [
-              "papers.cool/arxiv/cs.CL"
-            ],
-            "target": "/arxiv/cs.CL"
-          },
-          {
-            "title": "arXiv Computer Vision and Pattern Recognition (cs.CV)",
-            "source": [
-              "papers.cool/arxiv/cs.CV"
-            ],
-            "target": "/arxiv/cs.CV"
-          },
-          {
-            "title": "arXiv Machine Learning (cs.LG)",
-            "source": [
-              "papers.cool/arxiv/cs.LG"
-            ],
-            "target": "/arxiv/cs.LG"
-          }
-        ],
+        "name": "Unknown",
+        "maintainers": [],
         "location": "index.ts"
       }
     },
     "name": "Cool Papers",
-    "url": "papers.cool",
-    "categories": [
-      "journal"
-    ],
-    "description": ""
+    "url": "papers.cool"
   },
   "paradigm": {
     "routes": {
@@ -54397,6 +54241,14 @@
         "parameters": {
           "user": "Username",
           "routeParams": "Extra parameters, see the table below"
+        },
+        "features": {
+          "requireConfig": false,
+          "requirePuppeteer": false,
+          "antiCrawler": false,
+          "supportBT": false,
+          "supportPodcast": false,
+          "supportScihub": false
         },
         "name": "User timeline",
         "maintainers": [
