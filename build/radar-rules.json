@@ -725,6 +725,16 @@
         ],
         "target": "/agora0/pen0"
       }
+    ],
+    "njuferret": [
+      {
+        "title": "Blogs",
+        "docs": "https://docs.rsshub.app/routes/blog",
+        "source": [
+          "/"
+        ],
+        "target": "/njuferret/blog"
+      }
     ]
   },
   "ahjzu.edu.cn": {
@@ -4780,6 +4790,19 @@
       }
     ]
   },
+  "jjmhw.cc": {
+    "_name": "漫小肆韓漫",
+    "www": [
+      {
+        "title": "漫画更新",
+        "docs": "https://docs.rsshub.app/routes/anime",
+        "source": [
+          "/book/:id"
+        ],
+        "target": "/freexcomic/book/:id"
+      }
+    ]
+  },
   "fuliba2023.net": {
     "_name": "福利吧",
     ".": [
@@ -5449,6 +5472,19 @@
           "/webapp/cs2020/email/*"
         ],
         "target": "/gov/hunan/changsha/major-email"
+      }
+    ]
+  },
+  "jiangsu.gov.cn": {
+    "_name": "中国人民银行",
+    "wlt": [
+      {
+        "title": "江苏文旅局审批公告",
+        "docs": "https://docs.rsshub.app/routes/government",
+        "source": [
+          "/"
+        ],
+        "target": "/gov/jiangsu/wlt"
       }
     ]
   },
@@ -8697,6 +8733,29 @@
       }
     ]
   },
+  "mixcloud.com": {
+    "_name": "Mixcloud",
+    ".": [
+      {
+        "title": "User",
+        "docs": "https://docs.rsshub.app/routes/multimedia",
+        "source": [
+          "/:username/:type"
+        ],
+        "target": "/mixcloud/:username/:type?"
+      }
+    ],
+    "www": [
+      {
+        "title": "User",
+        "docs": "https://docs.rsshub.app/routes/multimedia",
+        "source": [
+          "/:username/:type"
+        ],
+        "target": "/mixcloud/:username/:type?"
+      }
+    ]
+  },
   "modelscope.cn": {
     "_name": "ModelScope 魔搭社区",
     "community": [
@@ -10246,6 +10305,43 @@
           "/"
         ],
         "target": "/panewslab/topic/:id"
+      }
+    ]
+  },
+  "papers.cool": {
+    "_name": "Cool Papers",
+    ".": [
+      {
+        "title": "arXiv Artificial Intelligence (cs.AI)",
+        "docs": "https://docs.rsshub.app/routes/journal",
+        "source": [
+          "/arxiv/cs.AI"
+        ],
+        "target": "/papers/arxiv/cs.AI"
+      },
+      {
+        "title": "arXiv Computation and Language (cs.CL)",
+        "docs": "https://docs.rsshub.app/routes/journal",
+        "source": [
+          "/arxiv/cs.CL"
+        ],
+        "target": "/papers/arxiv/cs.CL"
+      },
+      {
+        "title": "arXiv Computer Vision and Pattern Recognition (cs.CV)",
+        "docs": "https://docs.rsshub.app/routes/journal",
+        "source": [
+          "/arxiv/cs.CV"
+        ],
+        "target": "/papers/arxiv/cs.CV"
+      },
+      {
+        "title": "arXiv Machine Learning (cs.LG)",
+        "docs": "https://docs.rsshub.app/routes/journal",
+        "source": [
+          "/arxiv/cs.LG"
+        ],
+        "target": "/papers/arxiv/cs.LG"
       }
     ]
   },
