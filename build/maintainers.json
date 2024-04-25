@@ -485,15 +485,12 @@
   "/auto-stats/:category?": [
     "nczitzk"
   ],
-  "/baai/hub/comments": [
-    "TonyRL"
-  ],
   "/baai/hub/events": [
     "TonyRL"
   ],
-  "/baai/hub/:tagId/:sort?/:range?": [],
-  "/baai/hub/:tagId/:sort?": [],
-  "/baai/hub/:sort?": [],
+  "/baai/hub/:tagId?/:sort?/:range?": [
+    "TonyRL"
+  ],
   "/backlinko/blog": [
     "TonyRL"
   ],
@@ -1227,6 +1224,9 @@
   "/coindesk/consensus-magazine": [
     "jameshih"
   ],
+  "/colamanga/:id": [
+    "machsix"
+  ],
   "/comicat/search/:keyword": [
     "Cyang39"
   ],
@@ -1739,6 +1739,9 @@
   ],
   "/ecnu/acm/contest/:category?": [
     "a180285"
+  ],
+  "/ecnu/jwc": [
+    "markbang"
   ],
   "/ecnu/yjs": [
     "shengmaosu"
@@ -2464,6 +2467,9 @@
   ],
   "/gov/zhengce/zhengceku/:department": [
     "zxx-457"
+  ],
+  "/gov/zj/search/:websiteid?/:word/:cateid?": [
+    "HaoyuLee"
   ],
   "/greasyfork/scripts/:script/feedback": [
     "miles170"
@@ -3344,6 +3350,9 @@
   ],
   "/lfsyd/user/:id?": [
     "auto-bot-ty"
+  ],
+  "/lianxh/:category?": [
+    "nczitzk"
   ],
   "/lifeweek/channel/:id": [],
   "/lifeweek/tag/:id": [],
@@ -4996,7 +5005,9 @@
   "/sicau/zsjy/:category?": [
     "nczitzk"
   ],
-  "/sigsac/ccs": [],
+  "/sigsac/ccs": [
+    "ZeddYu"
+  ],
   "/simpleinfo/:category?": [
     "haukeng"
   ],
@@ -5204,6 +5215,9 @@
   ],
   "/stdaily/digitalpaper": [
     "lyqluis"
+  ],
+  "/steam/appcommunityfeed/:appid/:routeParams?": [
+    "NyaaaDoge"
   ],
   "/steam/search/:params": [
     "moppman"
