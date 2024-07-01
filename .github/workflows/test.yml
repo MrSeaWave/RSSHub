@@ -13,8 +13,34 @@ on:
 
 permissions:
   contents: read
+  checks: write
 
 jobs:
+  fix-pnpm-lock:
+    # workaround for https://github.com/dependabot/dependabot-core/issues/7258
+    # until https://github.com/pnpm/pnpm/issues/6530 is fixed
+    if: github.triggering_actor == 'dependabot[bot]' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'pnpm'
+      - run: |
+          rm pnpm-lock.yaml
+          pnpm i
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'chore: fix pnpm install'
+          commit_user_name: dependabot[bot]
+          commit_user_email: 49699333+dependabot[bot]@users.noreply.github.com
+          commit_author: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
+
   vitest:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -27,13 +53,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [ 20, 21 ]
+        node-version: [ 20, 22 ]
     name: Vitest on Node ${{ matrix.node-version }}
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v3
-        with:
-          version: 8
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
@@ -45,7 +69,7 @@ jobs:
       - name: Build routes
         run: pnpm build
       - name: Test all and generate coverage
-        run: pnpm run vitest:coverage
+        run: pnpm run vitest:coverage --reporter=github-actions
         env:
           REDIS_URL: redis://localhost:${{ job.services.redis.ports[6379] }}/
       - name: Upload coverage to Codecov
@@ -60,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [ 20, 21 ]
+        node-version: [ 20, 22 ]
         chromium:
           - name: bundled Chromium
             dependency: ''
@@ -74,9 +98,7 @@ jobs:
     name: Vitest puppeteer on Node ${{ matrix.node-version }} with ${{ matrix.chromium.name }}
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v3
-        with:
-          version: 8
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
@@ -117,13 +139,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [ 20, 21 ]
+        node-version: [ 20, 22 ]
     name: Build radar and maintainer on Node ${{ matrix.node-version }}
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v3
-        with:
-          version: 8
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
@@ -131,6 +151,11 @@ jobs:
       - run: pnpm i
       - name: Build radar and maintainer
         run: npm run build
+      - name: Upload assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-assets-${{ matrix.node-version }}
+          path: assets/build/
 
   automerge:
     if: github.triggering_actor == 'dependabot[bot]' && github.event_name == 'pull_request'
