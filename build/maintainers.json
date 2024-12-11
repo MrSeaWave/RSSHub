@@ -1294,6 +1294,9 @@
   "/china/news/military": [
     "jiaaoMario"
   ],
+  "/chinacdc/:category{.+}?": [
+    "nczitzk"
+  ],
   "/chinadegrees/:province?": [
     "TonyRL"
   ],
@@ -4010,6 +4013,9 @@
   "/kuaidi100/company": [
     "NeverBehave"
   ],
+  "/kuaishou/profile/:principalId": [
+    "GuoChen-thlg"
+  ],
   "/kunchengblog/essay": [
     "nczitzk"
   ],
@@ -5193,7 +5199,8 @@
     "nczitzk"
   ],
   "/papers/:category{.+}?": [
-    "nczitzk"
+    "nczitzk",
+    "Muyun99"
   ],
   "/paradigm/writing": [
     "Fatpandac"
@@ -5467,7 +5474,7 @@
     "mintyfrankie"
   ],
   "/qbitai/category/:category": [
-    "FuryMartin"
+    "FuryMartin, Geraldxm"
   ],
   "/qbitai/tag/:tag": [
     "FuryMartin"
