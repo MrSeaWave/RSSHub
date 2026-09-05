@@ -1,10 +1,10 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 
 export const route: Route = {
     path: '/topic/:id/:sort?',
-    categories: ['social-media', 'popular'],
+    categories: ['social-media'],
     example: '/douban/topic/48823',
     parameters: { id: '话题id', sort: '排序方式，hot或new，默认为new' },
     features: {
@@ -54,7 +54,7 @@ async function handler(ctx) {
             let link;
             let title;
             if (type === 'status') {
-                link = item.target.status.sharing_url.split('&')[0];
+                link = item.target.status.sharing_url.split('&', 1)[0];
                 author = item.target.status.author.name;
                 title = author + '的广播';
                 date = item.target.status.create_time;

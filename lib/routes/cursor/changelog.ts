@@ -1,63 +1,107 @@
-import { Route } from '@/types';
-
-import got from '@/utils/got';
+import type { Cheerio, CheerioAPI } from 'cheerio';
 import { load } from 'cheerio';
+import type { Element } from 'domhandler';
+import type { Context } from 'hono';
+
+import type { Data, DataItem, Language, Route } from '@/types';
+import { ViewType } from '@/types';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
-export const route: Route = {
-    path: '/changelog',
-    categories: ['program-update'],
-    example: '/cursor/changelog',
-    url: 'www.cursor.com/changelog',
-    name: 'Changelog',
-    maintainers: ['p3psi-boo'],
-    radar: [
-        {
-            source: ['www.cursor.com/changelog'],
-            target: '/cursor/changelog',
-        },
-    ],
-    handler,
-};
+export const handler = async (ctx: Context): Promise<Data> => {
+    const locale = ctx.req.param('locale');
+    const limit = Number(ctx.req.query('limit') ?? '100');
 
-async function handler() {
-    const url = 'https://www.cursor.com/changelog';
+    const baseUrl = 'https://cursor.com';
+    const localeSegment = locale ? `/${locale}` : '';
+    const targetUrl: string = new URL(`${localeSegment}/changelog`, baseUrl).href;
 
-    const response = await got({
-        method: 'get',
-        url,
-    });
+    const response = await ofetch(targetUrl);
+    const $: CheerioAPI = load(response);
+    const language = ($('html').attr('lang') ?? 'en') as Language;
 
-    const $ = load(response.data);
+    const items: DataItem[] = $('main')
+        .first()
+        .find('article')
+        .slice(0, limit)
+        .toArray()
+        .map((el): DataItem => {
+            const $el: Cheerio<Element> = $(el);
 
-    const alist = $('article');
+            const timeEl = $el.find('time').first();
+            const pubDateStr = timeEl.attr('datetime') || timeEl.text();
+            const versionLabel = timeEl.closest('a').find('.label').text();
 
-    const list = alist.toArray().map((item) => {
-        const leftSide = item.firstChild! as unknown as Element;
-        const version = $(leftSide.firstChild!).text();
-        const dateLabel = $(leftSide.lastChild!).text();
-        const date = parseDate(dateLabel);
+            const linkEl = $el.find('h1 a');
+            const titleText = linkEl.length ? linkEl.text() : $el.find('h1').text();
+            const title: string = versionLabel ? `[${versionLabel}] ${titleText}` : titleText;
 
-        // 从第二个子元素开始到结束都是内容
-        const content = item.children
-            .slice(1)
-            .map((child) => $(child).html())
-            .join('');
-        const titleElement = $('h2 a', item);
-        const link = titleElement.attr('href');
-        const title = titleElement.text();
+            const linkUrl: string | undefined = linkEl.attr('href');
+            let guid = linkUrl ? linkUrl.split('/').pop() : 'unknown';
+            if (versionLabel) {
+                guid = `cursor-changelog-${versionLabel}`;
+            }
 
-        return {
-            title: `${version} - ${title}`,
-            description: content,
-            link: `https://www.cursor.com${link}`,
-            pubDate: date,
-        };
-    });
+            const description = $el.find('.prose').html();
+
+            const processedItem: DataItem = {
+                title,
+                description,
+                pubDate: pubDateStr ? parseDate(pubDateStr) : undefined,
+                link: linkUrl ? new URL(linkUrl, baseUrl).href : undefined,
+                guid,
+                id: guid,
+                content: {
+                    html: description,
+                    text: description,
+                },
+                language,
+            };
+
+            return processedItem;
+        });
 
     return {
-        title: 'Cursor Changelog',
-        link: 'https://www.cursor.com/changelog',
-        item: list,
+        title: $('title').text(),
+        description: $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content'),
+        link: targetUrl,
+        item: items,
+        allowEmpty: true,
+        image: $('meta[property="og:image"]').attr('content'),
+        language,
     };
-}
+};
+
+export const route: Route = {
+    path: '/changelog/:locale?',
+    name: 'Changelog',
+    url: 'cursor.com',
+    maintainers: ['p3psi-boo', 'nczitzk'],
+    handler,
+    example: '/cursor/changelog',
+    parameters: {
+        locale: 'Locale appended to the route path, e.g. `ja`',
+    },
+    description: undefined,
+    categories: ['program-update'],
+    features: {
+        requireConfig: false,
+        requirePuppeteer: false,
+        antiCrawler: false,
+        supportRadar: true,
+        supportBT: false,
+        supportPodcast: false,
+        supportScihub: false,
+    },
+    radar: [
+        {
+            source: ['cursor.com/changelog'],
+            target: '/changelog',
+        },
+        {
+            source: ['cursor.com/:locale/changelog'],
+            target: '/changelog/:locale',
+        },
+    ],
+    view: ViewType.Articles,
+};

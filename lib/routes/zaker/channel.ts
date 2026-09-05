@@ -1,8 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
-import * as cheerio from 'cheerio';
+
 import { baseUrl, fetchItem, getSafeLineCookieWithData, parseList } from './utils';
-import asyncPool from 'tiny-async-pool';
 
 export const route: Route = {
     path: '/channel/:id?',
@@ -27,14 +29,11 @@ async function handler(ctx) {
 
     const { cookie, data } = await getSafeLineCookieWithData(link);
 
-    const $ = cheerio.load(data);
+    const $ = load(data);
     const feedTitle = $('head title').text();
     const list = parseList($);
 
-    const items = [];
-    for await (const item of asyncPool(2, list, (item) => cache.tryGet(item.link!, () => fetchItem(item, cookie)))) {
-        items.push(item);
-    }
+    const items = await pMap(list, (item) => cache.tryGet(item.link!, () => fetchItem(item, cookie)), { concurrency: 2 });
 
     return {
         title: feedTitle,

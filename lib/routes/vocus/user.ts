@@ -1,11 +1,12 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { processList, ProcessFeed, baseUrl, apiUrl } from './utils';
+
+import { apiUrl, baseUrl, ProcessFeed, processList } from './utils';
 
 export const route: Route = {
     path: '/user/:id',
-    categories: ['social-media', 'popular'],
+    categories: ['social-media'],
     example: '/vocus/user/tsetyan',
     parameters: { id: '用户 id，可在用户主页的 URL 找到' },
     features: {
@@ -51,7 +52,7 @@ async function handler(ctx) {
 
     const list = processList(articles);
 
-    const items = await ProcessFeed(list, cache.tryGet);
+    const items = await ProcessFeed(list);
 
     return {
         title: `${userData.fullname}｜方格子 vocus`,

@@ -1,12 +1,13 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-const baseUrl = 'https://www.slowmist.com';
 import { finishArticleItem } from '@/utils/wechat-mp';
+
+const baseUrl = 'https://www.slowmist.com';
 
 export const route: Route = {
     path: '/:type?',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/slowmist/research',
     parameters: { type: '分类，见下表，默认为公司新闻' },
     features: {
@@ -27,8 +28,8 @@ export const route: Route = {
     handler,
     url: 'slowmist.com/zh/news.html',
     description: `| 公司新闻 | 漏洞披露 | 技术研究 |
-  | -------- | -------- | -------- |
-  | news     | vul      | research |`,
+| -------- | -------- | -------- |
+| news     | vul      | research |`,
 };
 
 async function handler(ctx) {

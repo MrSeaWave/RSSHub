@@ -35,11 +35,11 @@ export interface MisskeyNote {
     poll?: {
         expiresAt: string | null;
         multiple: boolean;
-        choices: {
+        choices: Array<{
             text: string;
             votes: number;
             isVoted: boolean;
-        }[];
+        }>;
     };
     emojis?: Record<string, string>;
     tags?: string[];
@@ -51,7 +51,7 @@ export interface MisskeyNote {
 }
 
 // https://github.com/misskey-dev/misskey/blob/d2e8dc4fe3c6e90e68001ed1f092d4e3d2454283/packages/backend/src/models/json-schema/user.ts
-interface MisskeyUser {
+export interface MisskeyUser {
     id: string;
     name: string | null;
     username: string;
@@ -105,7 +105,7 @@ interface MisskeyFile {
     thumbnailUrl: string | null;
     comment: string | null;
     folderId: string | null;
-    folder?: unknown | null;
+    folder?: unknown;
     userId: string | null;
     user?: MisskeyUser | null;
 }

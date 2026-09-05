@@ -1,11 +1,11 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import ofetch from '@/utils/ofetch';
 
 export const route: Route = {
     path: '/search/:query/:mode?/:routeParams?',
     name: 'Search',
     url: 'furaffinity.net',
-    categories: ['social-media', 'popular'],
+    categories: ['social-media'],
     example: '/furaffinity/search/protogen/nsfw',
     maintainers: ['TigerCubDen', 'SkyNetX007'],
     parameters: {
@@ -20,6 +20,7 @@ export const route: Route = {
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
+        nsfw: true,
     },
     radar: [
         {
@@ -29,14 +30,14 @@ export const route: Route = {
     ],
     handler,
     description: `Additional search parameters
-| Parameter       | Description          | Default   | Options                                                        |
-|-----------------|----------------------|-----------|----------------------------------------------------------------|
-| order_by        | Sort by              | relevancy | relevancy, date, popularity                                    |
-| order_direction | Sort order           | desc      | desc, asc                                                      |
-| range           | Date range           | all       | all, 1day, 3days, 7days, 30days, 90days, 1year, 3years, 5years |
-| pattern         | Query match pattern  | extended  | all, any, extended                                             |
-| type            | Category of artworks | all       | art, flash, photo, music, story, poetry                        |
-`,
+
+| Parameter        | Description          | Default   | Options                                                        |
+| ---------------- | -------------------- | --------- | -------------------------------------------------------------- |
+| order\\_by        | Sort by              | relevancy | relevancy, date, popularity                                    |
+| order\\_direction | Sort order           | desc      | desc, asc                                                      |
+| range            | Date range           | all       | all, 1day, 3days, 7days, 30days, 90days, 1year, 3years, 5years |
+| pattern          | Query match pattern  | extended  | all, any, extended                                             |
+| type             | Category of artworks | all       | art, flash, photo, music, story, poetry                        |`,
 };
 
 async function handler(ctx) {
@@ -66,7 +67,7 @@ async function handler(ctx) {
         allowEmpty: true,
         title: 'Fur Affinity | Search',
         link: `https://www.furaffinity.net/Search/?q=${query}`,
-        description: `Fur Affinity Search`,
+        description: 'Fur Affinity Search',
         item: items,
     };
 }

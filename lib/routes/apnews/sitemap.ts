@@ -1,9 +1,14 @@
-import { Route, ViewType } from '@/types';
-import { asyncPoolAll, fetchArticle } from './utils';
-import ofetch from '@/utils/ofetch';
 import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
+import { ViewType } from '@/types';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
+
+import { fetchArticle } from './utils';
+
 const HOME_PAGE = 'https://apnews.com';
 
 export const route: Route = {
@@ -56,13 +61,13 @@ async function handler(ctx) {
                     .find(String.raw`news\:publication_date`)
                     .text()
             );
-            const lastmod = timezone(parseDate($(e).find(`lastmod`).text()), -4);
+            const lastmod = timezone(parseDate($(e).find('lastmod').text()), -4);
             const language = LANGUAGE_MAP.get(
                 $(e)
                     .find(String.raw`news\:language`)
                     .text()
             );
-            let res = { link: $(e).find('loc').text() };
+            let res: DataItem & { link: string; lastmod?: Date } = { link: $(e).find('loc').text(), title: '' };
             if (title) {
                 res = Object.assign(res, { title });
             }
@@ -78,10 +83,10 @@ async function handler(ctx) {
             return res;
         })
         .filter((e) => Boolean(e.link) && !new URL(e.link).pathname.split('/').includes('hub'))
-        .sort((a, b) => (a.pubDate && b.pubDate ? b.pubDate - a.pubDate : b.lastmod - a.lastmod))
-        .slice(0, ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 20);
+        .toSorted((a, b) => (a.pubDate && b.pubDate ? Number(b.pubDate) - Number(a.pubDate) : Number(b.lastmod) - Number(a.lastmod)))
+        .slice(0, ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 20);
 
-    const items = ctx.req.query('fulltext') === 'true' ? await asyncPoolAll(20, list, (item) => fetchArticle(item)) : list;
+    const items = ctx.req.query('fulltext') === 'true' ? await pMap(list, (item) => fetchArticle(item), { concurrency: 20 }) : list;
 
     return {
         title: `AP News sitemap:${route}`,

@@ -1,11 +1,10 @@
-import { Route } from '@/types';
-import parser from '@/utils/rss-parser';
-
+import type { Route } from '@/types';
 import { parseDate } from '@/utils/parse-date';
+import parser from '@/utils/rss-parser';
 
 export const route: Route = {
     path: '/tag/:tag',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/qbitai/tag/大语言模型',
     parameters: { tag: '标签名' },
     features: {
@@ -32,8 +31,8 @@ async function handler(ctx) {
     const feed = await parser.parseURL(link);
 
     const items = feed.items.map((item) => ({
-        title: item.title,
-        pubDate: parseDate(item.pubDate),
+        title: item.title!,
+        pubDate: parseDate(item.pubDate!),
         link: item.link,
         author: '量子位',
         category: item.categories,

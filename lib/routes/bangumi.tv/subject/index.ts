@@ -1,9 +1,10 @@
-import { Route } from '@/types';
-import getComments from './comments';
-import getFromAPI from './offcial-subject-api';
-import getEps from './ep';
-import { queryToBoolean } from '@/utils/readable-social';
 import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
+import { queryToBoolean } from '@/utils/readable-social';
+
+import { getComments } from './comments';
+import { getEps } from './ep';
+import { getFromAPI } from './offcial-subject-api';
 
 export const route: Route = {
     path: '/subject/:id/:type?/:showOriginalName?',
@@ -27,9 +28,9 @@ export const route: Route = {
     name: '条目的通用路由格式',
     maintainers: ['JimenezLi'],
     handler,
-    description: `:::warning
-  此通用路由仅用于对路由参数的描述，具体信息请查看下方与条目相关的路由
-  :::`,
+    description: `::: warning
+此通用路由仅用于对路由参数的描述，具体信息请查看下方与条目相关的路由
+:::`,
 };
 
 async function handler(ctx) {

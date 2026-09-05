@@ -1,8 +1,10 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
-import { getSignedHeader, header } from './utils';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+
+import { getSignedHeader, header, processImage } from './utils';
 
 export const route: Route = {
     path: '/zhuanlan/:id',
@@ -10,7 +12,12 @@ export const route: Route = {
     example: '/zhihu/zhuanlan/googledevelopers',
     parameters: { id: '专栏 id，可在专栏主页 URL 中找到' },
     features: {
-        requireConfig: false,
+        requireConfig: [
+            {
+                name: 'ZHIHU_COOKIES',
+                description: '',
+            },
+        ],
         requirePuppeteer: false,
         antiCrawler: true,
         supportBT: false,
@@ -35,12 +42,11 @@ async function handler(ctx) {
         url = `https://www.zhihu.com/column/${id}`;
     }
 
-    const signedHeader = await getSignedHeader(url, `https://www.zhihu.com/api/v4/columns/${id}/items`);
+    const signedHeader = await getSignedHeader(url, `/api/v4/columns/${id}/items`);
     const listRes = await got({
         method: 'get',
         url: `https://www.zhihu.com/api/v4/columns/${id}/items`,
         headers: {
-            ...header,
             ...signedHeader,
             Referer: `https://zhuanlan.zhihu.com/${id}`,
         },
@@ -48,7 +54,7 @@ async function handler(ctx) {
 
     const pinnedRes = await got({
         method: 'get',
-        url: `https://www.zhihu.com/api/v4/columns/${id}/pinned-items`,
+        url: `https://www.zhihu.com/api/v4/columns/${id}/pinned-items/v2`,
         headers: {
             ...header,
             ...signedHeader,
@@ -72,14 +78,12 @@ async function handler(ctx) {
         // 当专栏内文章内容不含任何文字时, 返回空字符, 以免直接报错
         let description = '';
         if (item.content) {
-            const $ = load(item.content);
-            description = $.html();
+            description = processImage(item.content);
         }
-        $('img').css('max-width', '100%');
 
-        let title = '';
-        let link = '';
-        let author = '';
+        let title: string;
+        let link: string;
+        let author: string;
         let pubDate: Date;
 
         switch (item.type) {

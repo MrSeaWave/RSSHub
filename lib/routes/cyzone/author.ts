@@ -1,10 +1,10 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import { rootUrl, apiRootUrl, processItems, getInfo } from './util';
+import type { Route } from '@/types';
+
+import { apiRootUrl, getInfo, processItems, rootUrl } from './util';
 
 export const route: Route = {
     path: '/author/:id',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/cyzone/author/1225562',
     parameters: { id: '作者 id，可在对应作者页 URL 中找到' },
     features: {
@@ -21,23 +21,23 @@ export const route: Route = {
         },
     ],
     name: '作者',
-    maintainers: ['nczitzk'],
+    maintainers: ['xyqfer', 'nczitzk'],
     handler,
 };
 
 async function handler(ctx) {
     const id = ctx.req.param('id');
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 5;
+    const limit = ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 5;
 
     const apiUrl = new URL('v2/author/author/detail', apiRootUrl).href;
     const currentUrl = new URL(`author/${id}`, rootUrl).href;
 
-    const items = await processItems(apiUrl, limit, cache.tryGet, {
+    const items = await processItems(apiUrl, limit, {
         author_id: id,
     });
 
     return {
         item: items,
-        ...(await getInfo(currentUrl, cache.tryGet)),
+        ...(await getInfo(currentUrl)),
     };
 }

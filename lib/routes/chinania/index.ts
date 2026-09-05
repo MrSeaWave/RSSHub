@@ -1,13 +1,13 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
 
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
 export const handler = async (ctx) => {
     const { category = 'xiehuidongtai/xiehuitongzhi' } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 25;
+    const limit = ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 25;
 
     const rootUrl = 'https://www.chinania.org.cn';
     const currentUrl = new URL(`html/${category.endsWith('/') ? category : `${category}/`}`, rootUrl).href;
@@ -16,25 +16,25 @@ export const handler = async (ctx) => {
 
     const $ = load(response);
 
-    const language = $('html').prop('lang');
+    const language = $('html').prop('lang') as Language;
 
     let items = $('ul.notice_list_ul li')
         .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
             return {
-                title: item.find('p').first().text(),
-                pubDate: parseDate(item.find('p').last().text()),
-                link: item.find('a').prop('href'),
+                title: $item.find('p').first().text(),
+                pubDate: parseDate($item.find('p').last().text()),
+                link: $item.find('a').prop('href'),
                 language,
             };
         });
 
     items = await Promise.all(
         items.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 const { data: detailResponse } = await got(item.link);
 
                 const $$ = load(detailResponse);
@@ -44,7 +44,7 @@ export const handler = async (ctx) => {
 
                 item.title = title;
                 item.description = description;
-                item.pubDate = parseDate($$('div.article_title p').last().text().split('：'));
+                item.pubDate = parseDate($$('div.article_title p').last().text().split('：', 2)[1] ?? '');
                 item.author = $$("meta[name='keywords']").prop('content');
                 item.content = {
                     html: description,
@@ -58,11 +58,11 @@ export const handler = async (ctx) => {
     );
 
     const title = $('title').text();
-    const image = new URL($('img.logo').prop('src'), rootUrl).href;
+    const image = new URL($('img.logo').prop('src')!, rootUrl).href;
 
     return {
         title,
-        description: title.split(/-/)[0]?.trim(),
+        description: title.split(/-/, 1)[0]?.trim(),
         link: currentUrl,
         item: items,
         allowEmpty: true,
@@ -80,57 +80,56 @@ export const route: Route = {
     handler,
     example: '/chinania/xiehuidongtai/xiehuitongzhi',
     parameters: { category: '分类，默认为 `xiehuidongtai/xiehuitongzhi`，即协会通知，可在对应分类页 URL 中找到' },
-    description: `:::tip
-  若订阅 [协会通知](https://www.chinania.org.cn/html/xiehuidongtai/xiehuitongzhi/)，网址为 \`https://www.chinania.org.cn/html/xiehuidongtai/xiehuitongzhi/\`。截取 \`https://www.chinania.org.cn/html\` 到末尾 \`/\` 的部分 \`xiehuidongtai/xiehuitongzhi\` 作为参数填入，此时路由为 [\`/chinania/xiehuidongtai/xiehuitongzhi\`](https://rsshub.app/chinania/xiehuidongtai/xiehuitongzhi)。
-  :::
+    description: `::: tip
+若订阅 [协会通知](https://www.chinania.org.cn/html/xiehuidongtai/xiehuitongzhi/)，网址为 \`https://www.chinania.org.cn/html/xiehuidongtai/xiehuitongzhi/\`。截取 \`https://www.chinania.org.cn/html\` 到末尾 \`/\` 的部分 \`xiehuidongtai/xiehuitongzhi\` 作为参数填入，此时路由为 [\`/chinania/xiehuidongtai/xiehuitongzhi\`](https://rsshub.app/chinania/xiehuidongtai/xiehuitongzhi)。
+:::
 
-  <details>
-    <summary>更多分类</summary>
+<details>
+<summary>更多分类</summary>
 
-  #### [协会动态](https://www.chinania.org.cn/html/xiehuidongtai/)
+#### [协会动态](https://www.chinania.org.cn/html/xiehuidongtai/)
 
-  | [协会动态](https://www.chinania.org.cn/html/xiehuidongtai/xiehuidongtai/)              | [协会通知](https://www.chinania.org.cn/html/xiehuidongtai/xiehuitongzhi/)              | [有色企业50强](https://www.chinania.org.cn/html/xiehuidongtai/youseqiye50qiang/)             |
-  | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-  | [xiehuidongtai/xiehuidongtai](https://rsshub.app/chinania/xiehuidongtai/xiehuidongtai) | [xiehuidongtai/xiehuitongzhi](https://rsshub.app/chinania/xiehuidongtai/xiehuitongzhi) | [xiehuidongtai/youseqiye50qiang](https://rsshub.app/chinania/xiehuidongtai/youseqiye50qiang) |
+| [协会动态](https://www.chinania.org.cn/html/xiehuidongtai/xiehuidongtai/)              | [协会通知](https://www.chinania.org.cn/html/xiehuidongtai/xiehuitongzhi/)              | [有色企业 50 强](https://www.chinania.org.cn/html/xiehuidongtai/youseqiye50qiang/)           |
+| -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| [xiehuidongtai/xiehuidongtai](https://rsshub.app/chinania/xiehuidongtai/xiehuidongtai) | [xiehuidongtai/xiehuitongzhi](https://rsshub.app/chinania/xiehuidongtai/xiehuitongzhi) | [xiehuidongtai/youseqiye50qiang](https://rsshub.app/chinania/xiehuidongtai/youseqiye50qiang) |
 
-  #### [党建工作](https://www.chinania.org.cn/html/djgz/)
+#### [党建工作](https://www.chinania.org.cn/html/djgz/)
 
-  | [协会党建](https://www.chinania.org.cn/html/djgz/xiehuidangjian/)      | [行业党建](https://www.chinania.org.cn/html/djgz/hangyedangjian/)      |
-  | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-  | [djgz/xiehuidangjian](https://rsshub.app/chinania/djgz/xiehuidangjian) | [djgz/hangyedangjian](https://rsshub.app/chinania/djgz/hangyedangjian) |
+| [协会党建](https://www.chinania.org.cn/html/djgz/xiehuidangjian/)      | [行业党建](https://www.chinania.org.cn/html/djgz/hangyedangjian/)      |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [djgz/xiehuidangjian](https://rsshub.app/chinania/djgz/xiehuidangjian) | [djgz/hangyedangjian](https://rsshub.app/chinania/djgz/hangyedangjian) |
 
-  #### [行业新闻](https://www.chinania.org.cn/html/hangyexinwen/)
+#### [行业新闻](https://www.chinania.org.cn/html/hangyexinwen/)
 
-  | [时政要闻](https://www.chinania.org.cn/html/hangyexinwen/shizhengyaowen/)              | [要闻](https://www.chinania.org.cn/html/hangyexinwen/yaowen/)          | [行业新闻](https://www.chinania.org.cn/html/hangyexinwen/guoneixinwen/)            | [资讯](https://www.chinania.org.cn/html/hangyexinwen/zixun/)         |
-  | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-  | [hangyexinwen/shizhengyaowen](https://rsshub.app/chinania/hangyexinwen/shizhengyaowen) | [hangyexinwen/yaowen](https://rsshub.app/chinania/hangyexinwen/yaowen) | [hangyexinwen/guoneixinwen](https://rsshub.app/chinania/hangyexinwen/guoneixinwen) | [hangyexinwen/zixun](https://rsshub.app/chinania/hangyexinwen/zixun) |
+| [时政要闻](https://www.chinania.org.cn/html/hangyexinwen/shizhengyaowen/)              | [要闻](https://www.chinania.org.cn/html/hangyexinwen/yaowen/)          | [行业新闻](https://www.chinania.org.cn/html/hangyexinwen/guoneixinwen/)            | [资讯](https://www.chinania.org.cn/html/hangyexinwen/zixun/)         |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| [hangyexinwen/shizhengyaowen](https://rsshub.app/chinania/hangyexinwen/shizhengyaowen) | [hangyexinwen/yaowen](https://rsshub.app/chinania/hangyexinwen/yaowen) | [hangyexinwen/guoneixinwen](https://rsshub.app/chinania/hangyexinwen/guoneixinwen) | [hangyexinwen/zixun](https://rsshub.app/chinania/hangyexinwen/zixun) |
 
-  #### [人力资源](https://www.chinania.org.cn/html/renliziyuan/)
+#### [人力资源](https://www.chinania.org.cn/html/renliziyuan/)
 
-  | [相关通知](https://www.chinania.org.cn/html/renliziyuan/xiangguantongzhi/)               | [人事招聘](https://www.chinania.org.cn/html/renliziyuan/renshizhaopin/)            |
-  | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-  | [renliziyuan/xiangguantongzhi](https://rsshub.app/chinania/renliziyuan/xiangguantongzhi) | [renliziyuan/renshizhaopin](https://rsshub.app/chinania/renliziyuan/renshizhaopin) |
+| [相关通知](https://www.chinania.org.cn/html/renliziyuan/xiangguantongzhi/)               | [人事招聘](https://www.chinania.org.cn/html/renliziyuan/renshizhaopin/)            |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [renliziyuan/xiangguantongzhi](https://rsshub.app/chinania/renliziyuan/xiangguantongzhi) | [renliziyuan/renshizhaopin](https://rsshub.app/chinania/renliziyuan/renshizhaopin) |
 
-  #### [行业统计](https://www.chinania.org.cn/html/hangyetongji/jqzs/)
+#### [行业统计](https://www.chinania.org.cn/html/hangyetongji/jqzs/)
 
-  | [行业分析](https://www.chinania.org.cn/html/hangyetongji/tongji/)      | [数据统计](https://www.chinania.org.cn/html/hangyetongji/chanyeshuju/)           | [景气指数](https://www.chinania.org.cn/html/hangyetongji/jqzs/)    |
-  | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-  | [hangyetongji/tongji](https://rsshub.app/chinania/hangyetongji/tongji) | [hangyetongji/chanyeshuju](https://rsshub.app/chinania/hangyetongji/chanyeshuju) | [hangyetongji/jqzs](https://rsshub.app/chinania/hangyetongji/jqzs) |
+| [行业分析](https://www.chinania.org.cn/html/hangyetongji/tongji/)      | [数据统计](https://www.chinania.org.cn/html/hangyetongji/chanyeshuju/)           | [景气指数](https://www.chinania.org.cn/html/hangyetongji/jqzs/)    |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| [hangyetongji/tongji](https://rsshub.app/chinania/hangyetongji/tongji) | [hangyetongji/chanyeshuju](https://rsshub.app/chinania/hangyetongji/chanyeshuju) | [hangyetongji/jqzs](https://rsshub.app/chinania/hangyetongji/jqzs) |
 
-  #### [政策法规](https://www.chinania.org.cn/html/zcfg/zhengcefagui/)
+#### [政策法规](https://www.chinania.org.cn/html/zcfg/zhengcefagui/)
 
-  | [政策法规](https://www.chinania.org.cn/html/zcfg/zhengcefagui/)    |
-  | ------------------------------------------------------------------ |
-  | [zcfg/zhengcefagui](https://rsshub.app/chinania/zcfg/zhengcefagui) |
+| [政策法规](https://www.chinania.org.cn/html/zcfg/zhengcefagui/)    |
+| ------------------------------------------------------------------ |
+| [zcfg/zhengcefagui](https://rsshub.app/chinania/zcfg/zhengcefagui) |
 
-  #### [会议展览](https://www.chinania.org.cn/html/hyzl/huiyizhanlan/)
+#### [会议展览](https://www.chinania.org.cn/html/hyzl/huiyizhanlan/)
 
-  | [会展通知](https://www.chinania.org.cn/html/hyzl/huiyizhanlan/)    | [会展报道](https://www.chinania.org.cn/html/hyzl/huizhanbaodao/)     |
-  | ------------------------------------------------------------------ | -------------------------------------------------------------------- |
-  | [hyzl/huiyizhanlan](https://rsshub.app/chinania/hyzl/huiyizhanlan) | [hyzl/huizhanbaodao](https://rsshub.app/chinania/hyzl/huizhanbaodao) |
+| [会展通知](https://www.chinania.org.cn/html/hyzl/huiyizhanlan/)    | [会展报道](https://www.chinania.org.cn/html/hyzl/huizhanbaodao/)     |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| [hyzl/huiyizhanlan](https://rsshub.app/chinania/hyzl/huiyizhanlan) | [hyzl/huizhanbaodao](https://rsshub.app/chinania/hyzl/huizhanbaodao) |
 
-  </details>
-    `,
+</details>`,
     categories: ['new-media'],
 
     features: {

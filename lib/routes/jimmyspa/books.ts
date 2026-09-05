@@ -1,13 +1,13 @@
-import { Route, ViewType } from '@/types';
-import { parseDate } from '@/utils/parse-date';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import { art } from '@/utils/render';
-import { getCurrentPath } from '@/utils/helpers';
-import cache from '@/utils/cache';
-import path from 'node:path';
 
-const __dirname = getCurrentPath(import.meta.url);
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+
+import { renderDescription } from './templates/description';
+
 export const route: Route = {
     path: '/books/:language',
     categories: ['design'],
@@ -29,14 +29,12 @@ export const route: Route = {
         },
     ],
     name: 'Books',
-    description: `
-| language | Description |
-| ---   | ---   |
-| tw | 臺灣正體 |
-| en | English |
-| jp | 日本語 |
-    `,
-    maintainers: ['FYLSen'],
+    description: `| language | Description |
+| -------- | ----------- |
+| tw       | 臺灣正體    |
+| en       | English     |
+| jp       | 日本語      |`,
+    maintainers: ['Cedaric'],
     handler,
 };
 
@@ -57,14 +55,14 @@ async function handler(ctx) {
             const bookImageUrl = bookImageRelative ? baseUrl + bookImageRelative : '';
             const bookDetailUrl = bookContent('li.work_block').prop('data-route');
 
-            const { renderedDescription, publishDate } = (await cache.tryGet(bookDetailUrl, async () => {
+            const { renderedDescription, publishDate } = await cache.tryGet(bookDetailUrl, async () => {
                 const detailResponse = await got(bookDetailUrl);
                 const detailPage = load(detailResponse.data);
                 const bookDescription = detailPage('article.intro_cont').html() || '';
                 const bookInfoWrap = detailPage('div.info_wrap').html() || '';
 
                 const processedDescription = bookDescription.replaceAll(/<img\b[^>]*>/g, (imgTag) =>
-                    imgTag.replaceAll(/\b(src|data-src)="(?!http|https|\/\/)([^"]*)"/g, (_, attrName, relativePath) => {
+                    imgTag.replaceAll(/\b(src|data-src)="(?!http|\/\/)([^"]*)"/g, (_, attrName, relativePath) => {
                         const absoluteImageUrl = new URL(relativePath, baseUrl).href;
                         return `${attrName}="${absoluteImageUrl}"`;
                     })
@@ -73,7 +71,7 @@ async function handler(ctx) {
                 const publishDateMatch = bookInfoWrap.match(/<span>(首次出版|First Published|初版)<\/span>\s*<span class="num">([^<]+)<\/span>/);
                 const publishDate = publishDateMatch ? parseDate(publishDateMatch[2] + '-02') : '';
 
-                const renderedDescription = art(path.join(__dirname, 'templates/description.art'), {
+                const renderedDescription = renderDescription({
                     images: bookImageUrl
                         ? [
                               {
@@ -89,7 +87,7 @@ async function handler(ctx) {
                     renderedDescription,
                     publishDate,
                 };
-            })) as { renderedDescription: string; publishDate: string };
+            });
 
             return {
                 title: bookTitle,

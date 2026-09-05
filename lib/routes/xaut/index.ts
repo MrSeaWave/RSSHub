@@ -1,9 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import timezone from '@/utils/timezone';
 import { parseDate } from '@/utils/parse-date';
-import { load } from 'cheerio';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/index/:category?',
@@ -22,8 +23,8 @@ export const route: Route = {
     maintainers: ['mocusez'],
     handler,
     description: `| 学校新闻 | 砥志研思 | 立德树人 | 传道授业 | 校闻周知 |
-  | :------: | :------: | :------: | :------: | :------: |
-  |   xxxw   |   dzys   |   ldsr   |   cdsy   |   xwzz   |`,
+| :------: | :------: | :------: | :------: | :------: |
+|   xxxw   |   dzys   |   ldsr   |   cdsy   |   xwzz   |`,
 };
 
 async function handler(ctx) {
@@ -44,20 +45,20 @@ async function handler(ctx) {
     const $ = load(data);
 
     const list = $('div.nlist ul li')
-        .map((_, item) => {
-            item = $(item);
+        .toArray()
+        .map((item): DataItem => {
+            const $item = $(item);
             // link原来长这样：'../info/1196/13990.htm'
-            const link = item.find('a').attr('href').replace(/^\.\./, 'http://www.xaut.edu.cn');
-            const pubDate = timezone(parseDate(item.find('div.time').text().trim()), +8);
-            const title = item.find('h5').text();
+            const link = $item.find('a').attr('href')!.replace(/^\.\./, 'http://www.xaut.edu.cn');
+            const pubDate = timezone(parseDate($item.find('div.time').text()), 8);
+            const title = $item.find('h5').text();
 
             return {
                 title,
                 link,
                 pubDate,
             };
-        })
-        .get();
+        });
 
     return {
         // 源标题
@@ -65,12 +66,12 @@ async function handler(ctx) {
         // 源链接
         link: 'http://www.xaut.edu.cn',
         // 源说明
-        description: `西安理工大学官网-` + dic_title[category],
+        description: '西安理工大学官网-' + dic_title[category],
         // 遍历此前获取的数据
         item: await Promise.all(
             list.map((item) =>
-                cache.tryGet(item.link, async () => {
-                    if (!item.link.match('zhixing.xaut.edu.cn') && !item.link.match('xinwen.xaut.edu.cn')) {
+                cache.tryGet(item.link!, async () => {
+                    if (!item.link!.includes('://zhixing.xaut.edu.cn/') && !item.link!.includes('://xinwen.xaut.edu.cn/')) {
                         const res = await got({
                             method: 'get',
                             url: item.link,

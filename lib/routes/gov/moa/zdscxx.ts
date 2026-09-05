@@ -1,13 +1,13 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
 
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
 export const handler = async (ctx) => {
     const { category } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 5;
+    const limit = ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 5;
 
     const domain = 'moa.gov.cn';
     const rootFrameUrl = `http://www.${domain}`;
@@ -17,7 +17,7 @@ export const handler = async (ctx) => {
     const currentUrl = new URL('nyb/pc/messageList.jsp', rootUrl).href;
     const frameUrl = new URL('iframe/top_sj/', rootFrameUrl).href;
 
-    let filterForm = {};
+    const filterForm = {};
 
     if (category) {
         const apiFilterUrl = new URL('nyb/getMessageFilters', rootUrl).href;
@@ -29,17 +29,19 @@ export const handler = async (ctx) => {
             },
         });
 
-        const filters = filterResponse.result.reduce((filters, f) => {
+        const filters: Record<string, string[]> = {};
+        for (const f of filterResponse.result) {
             filters[f.name.trim()] = f.data.map((d) => d.name.trim());
-            return filters;
-        }, {});
+        }
 
-        filterForm = category.split(/\//).reduce((form, c) => {
-            for (const key of Object.keys(filters).filter((key) => filters[key].includes(c))) {
-                form[key] = c;
+        const categories = category.split(/\//);
+        for (const c of categories) {
+            for (const [key, value] of Object.entries(filters)) {
+                if (value.includes(c)) {
+                    filterForm[key] = c;
+                }
             }
-            return form;
-        }, {});
+        }
     }
 
     const { data: response } = await got.post(apiUrl, {
@@ -99,22 +101,21 @@ export const handler = async (ctx) => {
 };
 
 export const route: Route = {
-    path: '/moa/zdscxx/:category{.+}?',
-    name: '中华人民共和国农业农村部数据',
+    path: '/zdscxx/:category{.+}?',
+    name: '数据',
     url: 'www.moa.gov.cn',
     maintainers: ['nczitzk'],
     handler,
     example: '/gov/moa/zdscxx',
     parameters: { category: '分类，默认为全部，见下表' },
-    description: `:::tip
-  若订阅 [中华人民共和国农业农村部数据](http://zdscxx.moa.gov.cn:8080/nyb/pc/messageList.jsp) 的 \`价格指数\` 报告主题。此时路由为 [\`/gov/moa/zdscxx/价格指数\`](https://rsshub.app/gov/moa/zdscxx/价格指数)。
-  
-  若订阅 \`央视网\` 报告来源 的 \`蔬菜生产\` 报告主题。此时路由为 [\`/gov/moa/zdscxx/央视网/蔬菜生产\`](https://rsshub.app/gov/moa/zdscxx/央视网/蔬菜生产)。
-  :::
+    description: `::: tip
+若订阅 [中华人民共和国农业农村部数据](http://zdscxx.moa.gov.cn:8080/nyb/pc/messageList.jsp) 的 \`价格指数\` 报告主题。此时路由为 [\`/gov/moa/zdscxx/价格指数\`](https://rsshub.app/gov/moa/zdscxx/价格指数)。
 
-  | 价格指数 | 供需形势 | 分析报告周报 | 分析报告日报 | 日历信息 | 蔬菜生产 |
-  | -------- | -------- | ------------ | ------------ | -------- | -------- |
-    `,
+若订阅 \`央视网\` 报告来源 的 \`蔬菜生产\` 报告主题。此时路由为 [\`/gov/moa/zdscxx/央视网/蔬菜生产\`](https://rsshub.app/gov/moa/zdscxx/央视网/蔬菜生产)。
+:::
+
+| 价格指数 | 供需形势 | 分析报告周报 | 分析报告日报 | 日历信息 | 蔬菜生产 |
+| -------- | -------- | ------------ | ------------ | -------- | -------- |`,
     categories: ['government'],
 
     features: {
@@ -130,32 +131,32 @@ export const route: Route = {
         {
             title: '价格指数',
             source: ['zdscxx.moa.gov.cn:8080/nyb/pc/messageList.jsp'],
-            target: '/gov/moa/zdscxx/价格指数',
+            target: '/zdscxx/价格指数',
         },
         {
             title: '供需形势',
             source: ['zdscxx.moa.gov.cn:8080/nyb/pc/messageList.jsp'],
-            target: '/gov/moa/zdscxx/供需形势',
+            target: '/zdscxx/供需形势',
         },
         {
             title: '分析报告周报',
             source: ['zdscxx.moa.gov.cn:8080/nyb/pc/messageList.jsp'],
-            target: '/gov/moa/zdscxx/分析报告周报',
+            target: '/zdscxx/分析报告周报',
         },
         {
             title: '分析报告日报',
             source: ['zdscxx.moa.gov.cn:8080/nyb/pc/messageList.jsp'],
-            target: '/gov/moa/zdscxx/分析报告日报',
+            target: '/zdscxx/分析报告日报',
         },
         {
             title: '日历信息',
             source: ['zdscxx.moa.gov.cn:8080/nyb/pc/messageList.jsp'],
-            target: '/gov/moa/zdscxx/日历信息',
+            target: '/zdscxx/日历信息',
         },
         {
             title: '蔬菜生产',
             source: ['zdscxx.moa.gov.cn:8080/nyb/pc/messageList.jsp'],
-            target: '/gov/moa/zdscxx/蔬菜生产',
+            target: '/zdscxx/蔬菜生产',
         },
     ],
 };

@@ -1,10 +1,11 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
+
 import api from './api';
 import utils from './utils';
 
 export const route: Route = {
     path: '/list/:id/:routeParams?',
-    categories: ['social-media', 'popular'],
+    categories: ['social-media'],
     example: '/twitter/list/1502570462752219136',
     parameters: { id: 'list id, get from url', routeParams: 'extra parameters, see the table above' },
     features: {
@@ -41,7 +42,7 @@ async function handler(ctx) {
     const params = count ? { count } : {};
 
     await api.init();
-    let data = await api.getList(id, params);
+    let data: any = await api.getList(id, params);
     if (!include_rts) {
         data = utils.excludeRetweet(data);
     }
