@@ -1,11 +1,11 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
     path: '/banner',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/chaping/banner',
     parameters: {},
     features: {
@@ -28,7 +28,7 @@ export const route: Route = {
 };
 
 async function handler() {
-    const rootUrl = `https://chaping.cn/`;
+    const rootUrl = 'https://chaping.cn/';
     const response = await got({
         method: 'get',
         url: rootUrl,

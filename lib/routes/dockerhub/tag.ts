@@ -1,6 +1,7 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+
 import { hash } from './utils';
 
 export const route: Route = {
@@ -19,9 +20,9 @@ export const route: Route = {
     name: 'Image New Tag',
     maintainers: ['pseudoyu'],
     handler,
-    description: `:::warning
-  Use \`library\` as the \`owner\` for official images, such as [https://rsshub.app/dockerhub/tag/library/mysql](https://rsshub.app/dockerhub/tag/library/mysql)
-  :::`,
+    description: `::: warning
+Use \`library\` as the \`owner\` for official images, such as <https://rsshub.app/dockerhub/tag/library/mysql>
+:::`,
 };
 
 async function handler(ctx) {
@@ -30,7 +31,7 @@ async function handler(ctx) {
     const namespace = `${owner}/${image}`;
     const link = `https://hub.docker.com/r/${namespace}`;
 
-    const pageSize = isNaN(Number.parseInt(limits)) ? 10 : Number.parseInt(limits);
+    const pageSize = Number.isNaN(Number.parseInt(limits)) ? 10 : Number.parseInt(limits);
 
     const data = await got.get(`https://hub.docker.com/v2/repositories/${namespace}/tags/?page_size=${pageSize}`);
     const metadata = await got.get(`https://hub.docker.com/v2/repositories/${namespace}/`);
@@ -41,7 +42,7 @@ async function handler(ctx) {
         title: `${namespace} tags`,
         description: metadata.data.description,
         link,
-        language: 'en',
+        language: 'en' as const,
         item: tags.map((item) => {
             const architectures = item.images?.length ? item.images.map((img) => `${img.os}/${img.architecture}`).join(', ') : 'unknown architectures';
 

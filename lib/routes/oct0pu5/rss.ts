@@ -1,4 +1,4 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import buildData from '@/utils/common-config';
 
 const baseUrl = 'https://oct0pu5.cn/';
@@ -31,18 +31,14 @@ async function handler() {
     return await buildData({
         link,
         url: link,
-        title: `%title%`,
-        description: `%description%`,
-        params: {
-            title: '博客',
-            description: 'Oct0pu5的博客',
-        },
+        title: '博客',
+        description: 'Oct0pu5的博客',
         item: {
             item: '.recent-posts > .recent-post-item',
-            title: `$('.recent-post-info > a').text()`,
-            link: `$('.recent-post-info > a').attr('href')`,
-            description: `$('.recent-post-info > .content').text()`,
-            pubDate: `Date.parse($('div.recent-post-info > div.article-meta-wrap > span.post-meta-date > time').text().trim())`,
+            title: ($) => $('.recent-post-info > a').text(),
+            link: ($) => $('.recent-post-info > a').attr('href'),
+            description: ($) => $('.recent-post-info > .content').text(),
+            pubDate: ($) => Date.parse($('div.recent-post-info > div.article-meta-wrap > span.post-meta-date > time').text().trim()),
         },
     });
 }

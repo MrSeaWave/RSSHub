@@ -1,6 +1,8 @@
-import { Route, ViewType } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
+import got from '@/utils/got';
 
 const categoryList = {
     'combined-print-and-e-book-nonfiction': 'Combined Print & E-Book Nonfiction',
@@ -18,15 +20,15 @@ const categoryList = {
 
 export const route: Route = {
     path: '/book/:category?',
-    categories: ['traditional-media', 'popular'],
+    categories: ['traditional-media'],
     view: ViewType.Notifications,
     example: '/nytimes/book/combined-print-and-e-book-nonfiction',
     parameters: {
         category: {
             description: 'Category, can be found on the [official page](https://www.nytimes.com/books/best-sellers/)',
-            options: Object.keys(categoryList).map((key) => ({
+            options: Object.entries(categoryList).map(([key, value]) => ({
                 value: key,
-                label: categoryList[key],
+                label: value,
             })),
             default: 'combined-print-and-e-book-nonfiction',
         },
@@ -56,9 +58,9 @@ async function handler(ctx) {
 
     const url = `https://www.nytimes.com/books/best-sellers/${category}`;
 
-    let items = [];
+    let items: any[] = [];
     let dataTitle = '';
-    if (categoryList[category]) {
+    if (Object.hasOwn(categoryList, category)) {
         const response = await got({
             method: 'get',
             url,
@@ -68,7 +70,8 @@ async function handler(ctx) {
         dataTitle = $('h1').eq(0).text();
 
         items = $('article[itemprop=itemListElement]')
-            .map((index, elem) => {
+            .toArray()
+            .map((elem, index) => {
                 const $item = $(elem);
                 const firstInfo = $item.find('p').eq(0).text();
                 const $name = $item.find('h3[itemprop=name]');
@@ -95,8 +98,7 @@ async function handler(ctx) {
                     description: `<figure><img src="${imageLink}" alt="test"/><figcaption><span>${description}</span></figcaption></figure><br/>${firstInfo}<br/>Author: ${author}<br/>Publisher: ${publisher}`,
                     link: primaryLink,
                 };
-            })
-            .get();
+            });
     }
 
     return {

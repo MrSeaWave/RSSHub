@@ -1,11 +1,14 @@
-import { JSDOM, VirtualConsole } from 'jsdom';
-import cache from '@/utils/cache';
-import got from '../../pixiv-got';
-import { maskHeader } from '../../constants';
+import { load } from 'cheerio';
 import queryString from 'query-string';
-import { parseNovelContent } from './utils';
-import type { NovelContent, NSFWNovelDetail } from './types';
+
+import cache from '@/utils/cache';
+import { evaluateScriptData } from '@/utils/evaluate-script';
 import { parseDate } from '@/utils/parse-date';
+
+import { maskHeader } from '../../constants';
+import got from '../../pixiv-got';
+import type { NovelContent, NSFWNovelDetail } from './types';
+import { parseNovelContent } from './utils';
 
 export async function getNSFWNovelContent(novelId: string, token: string): Promise<NovelContent> {
     return (await cache.tryGet(`https://app-api.pixiv.net/webview/v2/novel:${novelId}`, async () => {
@@ -20,16 +23,16 @@ export async function getNSFWNovelContent(novelId: string, token: string): Promi
             }),
         });
 
-        const virtualConsole = new VirtualConsole().on('error', () => void 0);
-
-        const { window } = new JSDOM(response.data, {
-            runScripts: 'dangerously',
-            virtualConsole,
-        });
-
-        const novelDetail = window.pixiv?.novel as NSFWNovelDetail;
-
-        window.close();
+        const $ = load(response.data);
+        const script = $('script')
+            .toArray()
+            .map((element) => $(element).text())
+            .filter((source) => source.includes('pixiv'))
+            .join('\n');
+        if (!script) {
+            throw new Error('No novel data found');
+        }
+        const novelDetail = await evaluateScriptData<NSFWNovelDetail | undefined>(script, 'window.pixiv.novel');
 
         if (!novelDetail) {
             throw new Error('No novel data found');
