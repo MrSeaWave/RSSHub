@@ -1,59 +1,66 @@
-import { Route } from '@/types';
-import { baseUrl, getData, getList } from './utils.js';
+import type { Data, Route } from '@/types';
+import { ViewType } from '@/types';
 
-const query = `
-  query MostDiscussedFeed(
-    $first: Int
-    $supportedTypes: [String!] = ["article","share","freeform"]
-    ) {
-    page: mostDiscussedFeed(first: $first, supportedTypes: $supportedTypes) {
-      ...FeedPostConnection
+import { baseUrl, getData, getList, variables } from './utils.js';
+
+const query = /* GraphQL */ `
+    query MostDiscussedFeed($first: Int, $supportedTypes: [String!] = ["article", "share", "freeform"]) {
+        page: mostDiscussedFeed(first: $first, supportedTypes: $supportedTypes) {
+            ...FeedPostConnection
+        }
     }
-  }
 
-  fragment FeedPostConnection on PostConnection {
-    edges {
-      node {
-        ...FeedPost
-        contentHtml
-      }
+    fragment FeedPostConnection on PostConnection {
+        edges {
+            node {
+                ...FeedPost
+                contentHtml
+            }
+        }
     }
-  }
 
-  fragment FeedPost on Post {
-    ...SharedPostInfo
-  }
-
-  fragment SharedPostInfo on Post {
-    id
-    title
-    image
-    readTime
-    permalink
-    commentsPermalink
-    summary
-    createdAt
-    numUpvotes
-    numComments
-    author {
-      ...UserShortInfo
+    fragment FeedPost on Post {
+        ...SharedPostInfo
+        type
+        sharedPost {
+            title
+            summary
+            image
+            permalink
+        }
     }
-    tags
-  }
 
-  fragment UserShortInfo on User {
-    id
-    name
-    image
-    permalink
-    username
-    bio
-  }
+    fragment SharedPostInfo on Post {
+        id
+        title
+        image
+        readTime
+        permalink
+        commentsPermalink
+        summary
+        createdAt
+        numUpvotes
+        numComments
+        author {
+            ...UserShortInfo
+        }
+        tags
+    }
+
+    fragment UserShortInfo on User {
+        id
+        name
+        image
+        permalink
+        username
+        bio
+    }
 `;
 
 export const route: Route = {
-    path: '/discussed',
-    example: '/daily/discussed',
+    path: '/discussed/:period?/:dateSort?',
+    example: '/daily/discussed/30',
+    view: ViewType.Articles,
     radar: [
         {
             source: ['app.daily.dev/discussed'],
@@ -63,19 +70,43 @@ export const route: Route = {
     maintainers: ['Rjnishant530'],
     handler,
     url: 'app.daily.dev/discussed',
+    parameters: {
+        dateSort: {
+            description: 'Sort posts by publication date instead of popularity',
+            default: 'true',
+            options: [
+                { value: 'false', label: 'False' },
+                { value: 'true', label: 'True' },
+            ],
+        },
+        period: {
+            description: 'Period of Lookup',
+            default: '7',
+            options: [
+                { value: '7', label: 'Last Week' },
+                { value: '30', label: 'Last Month' },
+                { value: '365', label: 'Last Year' },
+            ],
+        },
+    },
 };
 
-async function handler(ctx) {
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 20;
-    const link = `${baseUrl}/discussed`;
+async function handler(ctx): Promise<Data> {
+    const limit = ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 20;
+    const dateSort = ctx.req.param('dateSort') ? JSON.parse(ctx.req.param('dateSort')) : true;
+    const period = ctx.req.param('period') ? Number(ctx.req.param('period')) : 7;
+
+    const link = `${baseUrl}/posts/discussed`;
 
     const data = await getData({
         query,
         variables: {
+            ...variables,
             first: limit,
+            period,
         },
     });
-    const items = getList(data);
+    const items = getList(data, dateSort);
 
     return {
         title: 'Real-time discussions in the developer community | daily.dev',

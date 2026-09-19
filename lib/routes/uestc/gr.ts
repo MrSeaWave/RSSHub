@@ -1,11 +1,12 @@
-import { Data, DataItem, Route } from '@/types';
+import { load } from 'cheerio';
+import type { Context } from 'hono';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Data, Route } from '@/types';
 import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
-import InvalidParameterError from '@/errors/types/invalid-parameter';
-import type { Context } from 'hono';
 
 const baseUrl = 'https://gr.uestc.edu.cn/';
 const detailUrl = 'https://gr.uestc.edu.cn/';
@@ -51,14 +52,14 @@ export const route: Route = {
     handler,
     url: 'gr.uestc.edu.cn/',
     description: `\
-  | 重要公告  | 教学管理 | 学位管理 | 学生管理 | 就业实践 |
-  | --------- | -------- | -------- | -------- | -------- |
-  | important | teaching | degree   | student  | practice |`,
+| 重要公告  | 教学管理 | 学位管理 | 学生管理 | 就业实践 |
+| --------- | -------- | -------- | -------- | -------- |
+| important | teaching | degree   | student  | practice |`,
 };
 
 async function handler(ctx: Context): Promise<Data> {
     const type = ctx.req.param('type') || 'important';
-    if (type in typeUrlMap === false) {
+    if (!Object.hasOwn(typeUrlMap, type)) {
         throw new InvalidParameterError('type not supported');
     }
     const typeName = typeNameMap[type];
@@ -70,7 +71,7 @@ async function handler(ctx: Context): Promise<Data> {
 
     const items = entries.map(async (entry) => {
         const element = $(entry);
-        const newsTitle = element.find('a').text() ?? '';
+        const newsTitle = element.find('a').text();
         const newsLink = detailUrl + element.find('a').attr('href');
 
         const newsDetail = await cache.tryGet(newsLink, async () => {
@@ -83,7 +84,7 @@ async function handler(ctx: Context): Promise<Data> {
             return {
                 title: newsTitle,
                 link: newsLink,
-                pubDate: match ? timezone(parseDate(match[1]), +8) : null,
+                pubDate: match ? timezone(parseDate(match[1]), 8) : null,
                 description: content('div.content').html(),
             };
         });
@@ -97,6 +98,6 @@ async function handler(ctx: Context): Promise<Data> {
         title: `研究生院通知（${typeName}）`,
         link: baseUrl,
         description: `电子科技大学研究生院通知（${typeName}）`,
-        item: out as DataItem[],
+        item: out,
     };
 }
