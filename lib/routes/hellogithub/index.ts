@@ -1,8 +1,8 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
-
 import { load } from 'cheerio';
-import { parseDate } from '@/utils/parse-date';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
+import { parseDateInTimezone } from '@/utils/parse-date-in-timezone';
 
 const sorts = {
     featured: '精选',
@@ -25,9 +25,9 @@ export const route: Route = {
     name: '开源项目',
     maintainers: ['moke8', 'nczitzk', 'CaoMeiYouRen'],
     handler,
-    description: `| 精选 | 全部 |
-  | ---- | ---- |
-  | featured  | all |`,
+    description: `| 精选     | 全部 |
+| -------- | ---- |
+| featured | all  |`,
 };
 
 async function handler(ctx) {
@@ -64,9 +64,9 @@ async function handler(ctx) {
         title: `${item.name}: ${item.title}`,
         author: item.author,
         link: `${rootUrl}/repository/${item.item_id}`,
-        pubDate: parseDate(item.updated_at),
+        pubDate: parseDateInTimezone(item.updated_at, 8),
         name: `${item.author}/${item.name}`,
-        summary: item.summary,
+        description: item.summary,
         language: item.primary_lang,
     }));
 

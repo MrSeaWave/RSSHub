@@ -1,24 +1,22 @@
-import path from 'node:path';
+import type { Cheerio, CheerioAPI } from 'cheerio';
+import { load } from 'cheerio';
+import type { Element } from 'domhandler';
+import type { Context } from 'hono';
 
-import { type CheerioAPI, type Cheerio, type Element, load } from 'cheerio';
-import { type Context } from 'hono';
-
-import { type DataItem, type Route, type Data, ViewType } from '@/types';
-
-import { art } from '@/utils/render';
+import type { Data, DataItem, Language, Route } from '@/types';
+import { ViewType } from '@/types';
 import cache from '@/utils/cache';
-import { getCurrentPath } from '@/utils/helpers';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
-const __dirname = getCurrentPath(import.meta.url);
+import { renderDescription } from './templates/description';
 
 export const handler = async (ctx: Context): Promise<Data> => {
     const { category } = ctx.req.param();
-    const limit: number = Number.parseInt(ctx.req.query('limit') ?? '1', 10);
+    const limit = Number(ctx.req.query('limit') ?? '1');
 
-    const rootUrl: string = 'https://www.ali213.net';
-    const apiRootUrl: string = 'https://mp.ali213.net';
+    const rootUrl = 'https://www.ali213.net';
+    const apiRootUrl = 'https://mp.ali213.net';
     const targetUrl: string = new URL(`/news/zl/${category ? (category.endsWith('/') ? category : `${category}/`) : ''}`, rootUrl).href;
     const apiUrl: string = new URL('ajax/newslist', apiRootUrl).href;
 
@@ -30,16 +28,16 @@ export const handler = async (ctx: Context): Promise<Data> => {
 
     const targetResponse = await ofetch(targetUrl);
     const $: CheerioAPI = load(targetResponse);
-    const language: string = $('html').prop('lang') ?? 'zh';
+    const language = ($('html').prop('lang') ?? 'zh') as Language;
 
     let items: DataItem[] = JSON.parse(response.replace(/^\((.*)\)$/, '$1'))
         .data.slice(0, limit)
         .map((item): DataItem => {
             const title: string = item.Title;
-            const description: string = art(path.join(__dirname, 'templates/description.art'), {
+            const description: string = renderDescription({
                 intro: item.GuideRead ?? '',
             });
-            const guid: string = `ali213-zl-${item.ID}`;
+            const guid = `ali213-zl-${item.ID}`;
             const image: string | undefined = item.PicPath ? `https:${item.PicPath}` : undefined;
 
             const author: DataItem['author'] = item.xiaobian;
@@ -65,12 +63,12 @@ export const handler = async (ctx: Context): Promise<Data> => {
     items = (
         await Promise.all(
             items.map((item) => {
-                if (!item.link && typeof item.link !== 'string') {
+                if (item.link === undefined) {
                     return item;
                 }
 
                 return cache.tryGet(item.link, async (): Promise<DataItem> => {
-                    const detailResponse = await ofetch(item.link);
+                    const detailResponse = await ofetch(item.link!);
                     const $$: CheerioAPI = load(detailResponse);
 
                     const title: string = $$('h1.newstit').text();
@@ -99,7 +97,7 @@ export const handler = async (ctx: Context): Promise<Data> => {
 
                     description += pageContents.join('');
 
-                    description = art(path.join(__dirname, 'templates/description.art'), {
+                    description = renderDescription({
                         description,
                     });
 
@@ -169,14 +167,13 @@ export const route: Route = {
     parameters: {
         category: '分类，默认为首页，可在对应分类页 URL 中找到',
     },
-    description: `:::tip
+    description: `::: tip
 若订阅 [游戏](https://www.ali213.net/news/zl/game/)，网址为 \`https://www.ali213.net/news/zl/game/\`，请截取 \`https://www.ali213.net/news/zl/\` 到末尾 \`/\` 的部分 \`game\` 作为 \`category\` 参数填入，此时目标路由为 [\`/ali213/zl/game\`](https://rsshub.app/ali213/zl/game)。
 :::
 
 | 首页                                     | 游戏                                         | 动漫                                           | 影视                                           | 娱乐                                           |
 | ---------------------------------------- | -------------------------------------------- | ---------------------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
-| [index](https://www.ali213.net/news/zl/) | [game](https://www.ali213.net/news/zl/game/) | [comic](https://www.ali213.net/news/zl/comic/) | [movie](https://www.ali213.net/news/zl/movie/) | [amuse](https://www.ali213.net/news/zl/amuse/) |
-`,
+| [index](https://www.ali213.net/news/zl/) | [game](https://www.ali213.net/news/zl/game/) | [comic](https://www.ali213.net/news/zl/comic/) | [movie](https://www.ali213.net/news/zl/movie/) | [amuse](https://www.ali213.net/news/zl/amuse/) |`,
     categories: ['game'],
     features: {
         requireConfig: false,

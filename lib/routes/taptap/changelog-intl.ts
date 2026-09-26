@@ -1,4 +1,5 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
+
 import { handler } from './common/changelog';
 
 export const route: Route = {
@@ -28,7 +29,7 @@ export const route: Route = {
     handler,
     description: `Language Code
 
-  | English (US) | 繁體中文 | 한국어 | 日本語 |
-  | ------------ | -------- | ------ | ------ |
-  | en_US       | zh_TW   | ko_KR | ja_JP |`,
+| English (US) | 繁體中文 | 한국어 | 日本語 |
+| ------------ | -------- | ------ | ------ |
+| en\\_US       | zh\\_TW   | ko\\_KR | ja\\_JP |`,
 };

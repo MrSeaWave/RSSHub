@@ -1,10 +1,12 @@
-import { Route, ViewType } from '@/types';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
 import cache from '@/utils/cache';
+
 import { getData, getList } from './utils';
 
 export const route: Route = {
     path: '/daily-updates/news',
-    categories: ['finance', 'popular'],
+    categories: ['finance'],
     view: ViewType.Notifications,
     example: '/stockedge/daily-updates/news',
     parameters: {},
@@ -37,6 +39,9 @@ async function handler() {
     const items = await Promise.all(
         list.map((item) =>
             cache.tryGet(item.link, async () => {
+                if (!item.securityID) {
+                    return item;
+                }
                 const info = await getData(`${apiInfo}/${item.securityID}`);
                 item.description = item.description + '<br><br>' + info?.AboutCompanyText;
                 return item;
@@ -51,6 +56,6 @@ async function handler() {
         description: 'Daily Updates on stockedge.com',
         logo: 'https://web.stockedge.com/assets/icon/favicon.png',
         icon: 'https://web.stockedge.com/assets/img/light/icon.png',
-        language: 'en-us',
+        language: 'en-us' as const,
     };
 }

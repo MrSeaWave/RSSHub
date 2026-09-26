@@ -1,11 +1,12 @@
-import { Route, ViewType } from '@/types';
+import { config } from '@/config';
+import type { DataItem, Route } from '@/types';
+import { ViewType } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import { config } from '@/config';
 
 export const route: Route = {
     path: '/search/:type?/:caty?/:period?/:order?/:rating?/:keyword?',
-    categories: ['picture', 'popular'],
+    categories: ['picture'],
     view: ViewType.Pictures,
     example: '/fantia/search/posts/all/daily',
     parameters: {
@@ -80,65 +81,72 @@ export const route: Route = {
         keyword: 'Keyword, empty by default',
     },
     features: {
-        requireConfig: false,
+        requireConfig: [
+            {
+                name: 'FANTIA_COOKIE',
+                optional: true,
+                description: 'The `cookie` after login can be obtained by viewing the request header in the console, If not filled in will cause some posts that require login to read to get exceptions',
+            },
+        ],
         requirePuppeteer: false,
         antiCrawler: false,
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
+        nsfw: true,
     },
     name: 'Search',
     maintainers: ['nczitzk'],
     handler,
     description: `Type
 
-  | クリエイター | 投稿  | 商品     | コミッション |
-  | ------------ | ----- | -------- | ------------ |
-  | fanclubs     | posts | products | commissions  |
+| クリエイター | 投稿  | 商品     | コミッション |
+| ------------ | ----- | -------- | ------------ |
+| fanclubs     | posts | products | commissions  |
 
-  Category
+Category
 
-  | 分类                   | 分类名     |
-  | ---------------------- | ---------- |
-  | イラスト               | illust     |
-  | 漫画                   | comic      |
-  | コスプレ               | cosplay    |
-  | YouTuber・配信者       | youtuber   |
-  | Vtuber                 | vtuber     |
-  | 音声作品・ASMR         | voice      |
-  | 声優・歌い手           | voiceactor |
-  | アイドル               | idol       |
-  | アニメ・映像・写真     | anime      |
-  | 3D                     | 3d         |
-  | ゲーム制作             | game       |
-  | 音楽                   | music      |
-  | 小説                   | novel      |
-  | ドール                 | doll       |
-  | アート・デザイン       | art        |
-  | プログラム             | program    |
-  | 創作・ハンドメイド     | handmade   |
-  | 歴史・評論・情報       | history    |
-  | 鉄道・旅行・ミリタリー | railroad   |
-  | ショップ               | shop       |
-  | その他                 | other      |
+| 分类                   | 分类名     |
+| ---------------------- | ---------- |
+| イラスト               | illust     |
+| 漫画                   | comic      |
+| コスプレ               | cosplay    |
+| YouTuber・配信者       | youtuber   |
+| Vtuber                 | vtuber     |
+| 音声作品・ASMR         | voice      |
+| 声優・歌い手           | voiceactor |
+| アイドル               | idol       |
+| アニメ・映像・写真     | anime      |
+| 3D                     | 3d         |
+| ゲーム制作             | game       |
+| 音楽                   | music      |
+| 小説                   | novel      |
+| ドール                 | doll       |
+| アート・デザイン       | art        |
+| プログラム             | program    |
+| 創作・ハンドメイド     | handmade   |
+| 歴史・評論・情報       | history    |
+| 鉄道・旅行・ミリタリー | railroad   |
+| ショップ               | shop       |
+| その他                 | other      |
 
-  Ranking period
+Ranking period
 
-  | デイリー | ウィークリー | マンスリー | 全期間 |
-  | -------- | ------------ | ---------- | ------ |
-  | daily    | weekly       | monthly    | all    |
+| デイリー | ウィークリー | マンスリー | 全期間 |
+| -------- | ------------ | ---------- | ------ |
+| daily    | weekly       | monthly    | all    |
 
-  Sorting
+Sorting
 
-  | 更新の新しい順 | 更新の古い順 | 投稿の新しい順 | 投稿の古い順 | お気に入り数順 |
-  | -------------- | ------------ | -------------- | ------------ | -------------- |
-  | updater        | update\_old  | newer          | create\_old  | popular        |
+| 更新の新しい順 | 更新の古い順 | 投稿の新しい順 | 投稿の古い順 | お気に入り数順 |
+| -------------- | ------------ | -------------- | ------------ | -------------- |
+| updater        | update\\_old  | newer          | create\\_old  | popular        |
 
-  Rating
+Rating
 
-  | すべて | 一般のみ | R18 のみ |
-  | ------ | -------- | -------- |
-  | all    | general  | adult    |`,
+| すべて | 一般のみ | R18 のみ |
+| ------ | -------- | -------- |
+| all    | general  | adult    |`,
 };
 
 async function handler(ctx) {
@@ -161,7 +169,7 @@ async function handler(ctx) {
         },
     });
 
-    let items = {};
+    let items: DataItem[];
 
     switch (type) {
         case 'fanclubs':
@@ -199,6 +207,9 @@ async function handler(ctx) {
                 description: `${item.buyable_lowest_plan.description ? `<p>${item.buyable_lowest_plan.description}</p>` : ''}<img src="${item.thumb ? item.thumb.main : item.thumb_micro}">`,
             }));
             break;
+
+        default:
+            throw new Error(`Unknown type: ${type}`);
     }
 
     return {

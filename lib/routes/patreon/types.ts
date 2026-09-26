@@ -1,26 +1,6 @@
 export interface CreatorData {
-    meta: {
-        desc: string;
-        height: null;
-        imageUrl: string;
-        isPrivate: boolean;
-        key: string;
-        openGraph: OpenGraph;
-        title: string;
-        url: string;
-        videoHeight: null;
-        videoUrl: null;
-        videoWidth: null;
-        viewport: string;
-    };
     id: string;
     attributes: IncludedAttributes;
-}
-
-interface OpenGraph {
-    desc: null;
-    imageUrl: null;
-    title: null;
 }
 
 export interface PostData {
@@ -39,7 +19,7 @@ interface Datum {
 
 interface Attributes {
     change_visibility_at: null;
-    comment_count: number;
+    comment_count?: number;
     commenter_count: number;
     created_at: string;
     current_user_can_comment: boolean;
@@ -48,7 +28,7 @@ interface Attributes {
     current_user_can_view: boolean;
     current_user_comment_disallowed_reason: string;
     has_ti_violation: boolean;
-    image: Image;
+    image: Image | null;
     is_new_to_current_user: boolean;
     is_paid: boolean;
     like_count: number;
@@ -59,20 +39,20 @@ interface Attributes {
     pledge_url: string;
     pls_one_liners_by_category: any[]; // Items are `false`, so an empty array
     post_level_suspension_removal_date: null;
-    post_metadata: PostMetadata;
+    post_metadata: PostMetadata | null;
     post_type: string;
     preview_asset_type: string | null;
     published_at: string;
-    teaser_text: string | null;
+    teaser_text_json_string: string | null;
     title: string;
     upgrade_url: string;
     url: string;
     video_preview: VideoPreview | null;
     was_posted_by_campaign_owner: boolean;
-    thumbnail?: Thumbnail;
-    content?: string;
+    thumbnail: Thumbnail | null;
+    content_json_string?: string | null;
     embed?: null;
-    post_file?: PostFile;
+    post_file?: PostFile | null;
 }
 
 interface Image {
@@ -83,6 +63,14 @@ interface Image {
     thumb_square_large_url?: string;
     thumb_square_url?: string;
     thumb_url?: string;
+    thumbnail: string;
+    default?: string;
+    default_blurred?: string;
+    default_blurred_small?: string;
+    default_small?: string;
+    original?: string;
+    thumbnail_large?: string;
+    thumbnail_small?: string;
 }
 
 interface PostMetadata {
@@ -162,8 +150,6 @@ interface Relationships {
     user_defined_tags: UserDefinedTags;
     video: MediaRelation;
     attachments_media?: AttachmentsMedia;
-    // Custom relationships
-    video_preview?: MediaRelation;
 }
 
 interface AccessRules {
@@ -175,7 +161,7 @@ interface AccessRuleData {
     type: string;
 }
 
-export interface MediaRelation {
+interface MediaRelation {
     data: MediaData | null;
     links?: RelatedLink;
 }
@@ -231,7 +217,6 @@ interface UserData {
 
 interface UserDefinedTags {
     data: UserDefinedTagData[];
-    attributes: IncludedAttributes;
 }
 
 interface UserDefinedTagData {
@@ -267,6 +252,7 @@ interface IncludedAttributes {
     is_monthly?: boolean;
     is_nsfw?: boolean;
     name?: string;
+    creation_name?: string;
     show_audio_post_download_links?: boolean;
     url?: string;
     // Additional properties for other types
@@ -279,7 +265,7 @@ interface IncludedAttributes {
     file_name?: string | null;
     image_urls?: Image | null;
     metadata?: Metadata;
-    download_url?: string;
+    download_url?: string | null;
     // For 'tier'
     access_rule_type?: string;
     amount_cents?: number | null;
@@ -323,18 +309,6 @@ interface VideoIssues {
         video_codec?: string;
         video_resolution?: string;
     };
-}
-
-interface Image {
-    thumbnail: string;
-    url: string;
-    default?: string;
-    default_blurred?: string;
-    default_blurred_small?: string;
-    default_small?: string;
-    original?: string;
-    thumbnail_large?: string;
-    thumbnail_small?: string;
 }
 
 interface Metadata {
