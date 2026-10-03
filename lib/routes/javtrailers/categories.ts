@@ -1,13 +1,13 @@
-import { Route } from '@/types';
-
-import ofetch from '@/utils/ofetch';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
+
 import { baseUrl, getItem, headers, parseList } from './utils';
 
 export const route: Route = {
     path: '/categories/:category',
     categories: ['multimedia'],
-    example: '/javtrailers/categories/50001755',
+    example: '/javtrailers/categories/hi-def',
     parameters: { category: 'Category name, can be found in the URL of the category page' },
     radar: [
         {
@@ -18,14 +18,16 @@ export const route: Route = {
     maintainers: ['TonyRL'],
     url: 'javtrailers.com/categories',
     handler,
+    features: {
+        nsfw: true,
+        requirePuppeteer: false,
+    },
 };
 
 async function handler(ctx) {
     const { category } = ctx.req.param();
 
-    const response = await ofetch(`${baseUrl}/api/categories/${category}?page=0`, {
-        headers,
-    });
+    const response = await ofetch(`${baseUrl}/api/categories/${category}?page=0`, { headers });
 
     const list = parseList(response.videos);
 

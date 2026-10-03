@@ -1,7 +1,6 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
-
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -20,7 +19,7 @@ export const route: Route = {
 
 async function handler() {
     const rootUrl = 'https://www.dataguidance.com';
-    const url = 'https://dgcb20-ca-northeurope-dglive.yellowground-c1f17366.northeurope.azurecontainerapps.io/api/v1/content/articles?order=DESC_publishedOn&limit=25&article_types=news_post';
+    const url = 'https://www.dataguidance.com/api/v1/kb/content/articles?news_types=510&news_types=511&news_types=512&news_types=513&order=DESC_publishedOn&limit=25&article_types=news_post';
 
     const response = await ofetch(url);
 
@@ -32,7 +31,7 @@ async function handler() {
         url: item.url,
         pubDate: parseDate(item.publishedOn),
     }));
-    const baseUrl = 'https://dgcb20-ca-northeurope-dglive.yellowground-c1f17366.northeurope.azurecontainerapps.io/api/v1/content/articles/by_path?path=';
+    const baseUrl = 'https://www.dataguidance.com/api/v1/kb/content/articles/by_path?path=';
     items = await Promise.all(
         items.map((item) =>
             cache.tryGet(item.link, async () => {

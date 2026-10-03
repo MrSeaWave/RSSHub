@@ -1,11 +1,13 @@
-import { Route, ViewType } from '@/types';
-import { parseDate } from '@/utils/parse-date';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import { art } from '@/utils/render';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
-import path from 'node:path';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+import { isValidHost } from '@/utils/valid-host';
+
+import { renderDescription } from './templates/description';
 
 export const route: Route = {
     path: '/news/:language',
@@ -28,19 +30,21 @@ export const route: Route = {
         },
     ],
     name: 'News',
-    description: `
-| language | Description |
-| ---   | ---   |
-| tw | 臺灣正體 |
-| en | English |
-| jp | 日本語 |
-    `,
-    maintainers: ['FYLSen'],
+    description: `| language | Description |
+| -------- | ----------- |
+| tw       | 臺灣正體    |
+| en       | English     |
+| jp       | 日本語      |`,
+    maintainers: ['Cedaric'],
     handler,
 };
 
 async function handler(ctx) {
     const language = ctx.req.param('language');
+    if (!isValidHost(language)) {
+        throw new InvalidParameterError('Invalid language');
+    }
+
     const rootUrl = 'https://www.jimmyspa.com';
 
     const currentUrl = new URL(`/${language}/News/Ajax/changeList?year=&keyword=&categoryId=0&page=1`, rootUrl).href;
@@ -57,9 +61,9 @@ async function handler(ctx) {
             const image = $$('a.news_card .card_img img').prop('src') || '';
             const link = $$('a.news_card').prop('data-route');
             const itemdate = $$('a.news_card div.date').html() || '';
-            const pubDate = convertHtmlDateToStandardFormat(itemdate.toString());
+            const pubDate = convertHtmlDateToStandardFormat(itemdate);
 
-            const description = art(path.join(__dirname, 'templates/description.art'), {
+            const description = renderDescription({
                 images: image
                     ? [
                           {
@@ -100,22 +104,22 @@ function convertHtmlDateToStandardFormat(htmlContent: string): Date | undefined 
         const year = match[2];
         const monthAbbreviation = match[3];
 
-        const monthMapping: { [key: string]: string } = {
-            Jan: '01',
-            Feb: '02',
-            Mar: '03',
-            Apr: '04',
-            May: '05',
-            Jun: '06',
-            Jul: '07',
-            Aug: '08',
-            Sep: '09',
-            Oct: '10',
-            Nov: '11',
-            Dec: '12',
-        };
+        const monthMapping = new Map([
+            ['Jan', '01'],
+            ['Feb', '02'],
+            ['Mar', '03'],
+            ['Apr', '04'],
+            ['May', '05'],
+            ['Jun', '06'],
+            ['Jul', '07'],
+            ['Aug', '08'],
+            ['Sep', '09'],
+            ['Oct', '10'],
+            ['Nov', '11'],
+            ['Dec', '12'],
+        ]);
 
-        const month = monthMapping[monthAbbreviation] || '';
+        const month = monthMapping.get(monthAbbreviation) ?? '';
 
         return parseDate(`20${year}-${month}-${day}`);
     }
