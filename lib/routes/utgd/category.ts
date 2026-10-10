@@ -1,11 +1,11 @@
-import { Route } from '@/types';
-
+import type { Route } from '@/types';
 import ofetch from '@/utils/ofetch';
-import { rootUrl, apiRootUrl, parseResult, parseArticle } from './utils';
+
+import { apiRootUrl, parseArticle, parseResult, rootUrl } from './utils';
 
 export const route: Route = {
     path: '/category/:category?',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/utgd/category/method',
     parameters: { category: '分类，可在对应分类页的 URL 中找到，默认为方法' },
     features: {
@@ -26,8 +26,8 @@ export const route: Route = {
     maintainers: ['nczitzk'],
     handler,
     description: `| 方法   | 观点    |
-  | ------ | ------- |
-  | method | opinion |`,
+| ------ | ------- |
+| method | opinion |`,
 };
 
 async function handler(ctx) {

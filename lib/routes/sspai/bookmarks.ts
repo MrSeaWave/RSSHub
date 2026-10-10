@@ -1,10 +1,10 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
     path: '/bookmarks/:slug',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/sspai/bookmarks/urfp0d9i',
     parameters: { slug: '用户 slug，可在个人主页URL中找到' },
     features: {
@@ -39,7 +39,7 @@ async function handler(ctx) {
         })
     ).data.data;
 
-    const user = (
+    const { nickname } = (
         await got({
             method: 'get',
             url: `https://sspai.com/api/v1/user/slug/info/get?slug=${slug}`,
@@ -48,8 +48,6 @@ async function handler(ctx) {
             },
         })
     ).data.data;
-
-    const { nickname } = user;
     return {
         title: `${nickname} 的全部收藏 - 少数派`,
         link,

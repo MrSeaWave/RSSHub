@@ -1,13 +1,16 @@
-import { Route } from '@/types';
+import MarkdownIt from 'markdown-it';
+
+import { config } from '@/config';
+import type { DataItem, Route } from '@/types';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
-import MarkdownIt from 'markdown-it';
+
 const md = MarkdownIt({
     html: true,
 });
 const rootUrl = 'https://github.com';
 const apiUrl = 'https://api.github.com';
-import { config } from '@/config';
+
 const typeDict = {
     issue: {
         title: 'Issue',
@@ -43,7 +46,7 @@ export const route: Route = {
 async function handler(ctx) {
     const user = ctx.req.param('user');
     const repo = ctx.req.param('repo');
-    const number = ctx.req.param('number') && isNaN(Number.parseInt(ctx.req.param('number'))) ? 1 : Number.parseInt(ctx.req.param('number'));
+    const number = ctx.req.param('number') && Number.isNaN(Number.parseInt(ctx.req.param('number'))) ? 1 : Number.parseInt(ctx.req.param('number'));
     const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 100;
     const headers =
         config.github && config.github.access_token
@@ -55,7 +58,7 @@ async function handler(ctx) {
                   Accept: 'application/vnd.github.v3+json',
               };
 
-    return await (isNaN(number) ? allIssues(ctx, user, repo, limit, headers) : singleIssue(ctx, user, repo, number, limit, headers));
+    return await (Number.isNaN(number) ? allIssues(ctx, user, repo, limit, headers) : singleIssue(ctx, user, repo, number, limit, headers));
 }
 
 async function allIssues(ctx, user, repo, limit, headers) {
@@ -87,11 +90,11 @@ async function allIssues(ctx, user, repo, limit, headers) {
     });
 
     const rateLimit = {
-        limit: Number.parseInt(response.headers.get('x-ratelimit-limit')),
-        remaining: Number.parseInt(response.headers.get('x-ratelimit-remaining')),
-        reset: parseDate(Number.parseInt(response.headers.get('x-ratelimit-reset')) * 1000),
+        limit: Number.parseInt(response.headers.get('x-ratelimit-limit') ?? ''),
+        remaining: Number.parseInt(response.headers.get('x-ratelimit-remaining') ?? ''),
+        reset: parseDate(Number.parseInt(response.headers.get('x-ratelimit-reset') ?? '') * 1000),
         resoure: response.headers.get('x-ratelimit-resource'),
-        used: Number.parseInt(response.headers.get('x-ratelimit-used')),
+        used: Number.parseInt(response.headers.get('x-ratelimit-used') ?? ''),
     };
 
     const ret = {
@@ -120,7 +123,7 @@ async function singleIssue(ctx, user, repo, number, limit, headers) {
             per_page: limit,
         },
     });
-    const items = [];
+    const items: DataItem[] = [];
     const lastUrl = timelineResponse.headers.get('link')?.match(/<(\S+?)>; rel="last"/)?.[1];
     if (lastUrl) {
         timelineResponse = await ofetch.raw(lastUrl, { headers });
@@ -194,14 +197,15 @@ async function singleIssue(ctx, user, repo, number, limit, headers) {
         item: items,
     };
 
+    const resetTimestamp = Number.parseInt(response.headers.get('x-ratelimit-reset') ?? '');
     ctx.set('json', {
         ...ret,
         rateLimit: {
-            limit: Number.parseInt(response.headers.get('x-ratelimit-limit')),
-            remaining: Number.parseInt(response.headers.get('x-ratelimit-remaining')),
-            reset: parseDate(Number.parseInt(response.headers.get('x-ratelimit-reset')) * 1000),
+            limit: Number.parseInt(response.headers.get('x-ratelimit-limit') ?? ''),
+            remaining: Number.parseInt(response.headers.get('x-ratelimit-remaining') ?? ''),
+            reset: parseDate(resetTimestamp * 1000),
             resoure: response.headers.get('x-ratelimit-resource'),
-            used: Number.parseInt(response.headers.get('x-ratelimit-used')),
+            used: Number.parseInt(response.headers.get('x-ratelimit-used') ?? ''),
         },
     });
     return ret;

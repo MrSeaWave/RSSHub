@@ -1,7 +1,11 @@
-import { Route, DataItem } from '@/types';
-import ofetch from '@/utils/ofetch';
 import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Data, DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
+
+import { getHeaders } from './utils';
 
 export const route: Route = {
     path: '/product/:id',
@@ -9,7 +13,13 @@ export const route: Route = {
     example: '/smzdm/product/zm5vzpe',
     parameters: { id: '商品 id，网址上直接可以看到' },
     features: {
-        requireConfig: false,
+        requireConfig: [
+            {
+                name: 'SMZDM_COOKIE',
+                optional: true,
+                description: '什么值得买登录后的 Cookie 值',
+            },
+        ],
         requirePuppeteer: false,
         antiCrawler: false,
         supportBT: false,
@@ -27,11 +37,15 @@ export const route: Route = {
     handler,
 };
 
-async function handler(ctx) {
+async function handler(ctx): Promise<Data> {
     const link = `https://wiki.smzdm.com/p/${ctx.req.param('id')}`;
 
-    const response = await ofetch(link);
-    const $ = load(response);
+    const listUrl = `${link}/jiage/`;
+    const response = await ofetch.raw(listUrl, {
+        headers: getHeaders(),
+    });
+    const cookie = getHeaders().cookie || [...response.headers.getSetCookie().map((c) => c.split(';', 1)[0]), `x-waf-captcha-referer=${listUrl}`].join('; ');
+    const $ = load(response._data);
     const title = $('title').text();
 
     // get simple info from list
@@ -52,33 +66,39 @@ async function handler(ctx) {
         });
 
     // get detail info from each item
-    const out = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
-                const response = await ofetch(item.link);
+    const out = await pMap(
+        items,
+        (item) =>
+            cache.tryGet(item.link!, async (): Promise<any> => {
+                const response = await ofetch(item.link!, {
+                    headers: {
+                        cookie,
+                    },
+                });
                 const $ = load(response);
 
                 // filter outdated articles
                 if ($('span.old').length > 0) {
                     return null;
-                } else {
-                    const pubDate = $('meta[name="weibo:webpage:create_at"]').attr('content');
-                    item.pubDate = pubDate;
-
-                    if (item.description === '阅读全文') {
-                        item.description = $('p[itemprop="description"]').first().html() as string;
-                    }
-
-                    return item;
                 }
-            })
-        )
+                const pubDate = $('meta[name="weibo:webpage:create_at"]').attr('content');
+                item.pubDate = pubDate;
+
+                if (item.description === '阅读全文') {
+                    item.description = $('p[itemprop="description"]').first().html() ?? undefined;
+                }
+
+                return item;
+            }),
+        { concurrency: 3 }
     );
 
     const filteredOut = out.filter((result) => result !== null);
 
     return {
         title,
+        description: $('.pinpai-info').text(),
+        image: $('.pp-img img').attr('src'),
         link,
         item: filteredOut,
     };

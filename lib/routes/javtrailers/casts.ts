@@ -1,7 +1,7 @@
-import { Route } from '@/types';
-
-import ofetch from '@/utils/ofetch';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
+
 import { baseUrl, getItem, headers, parseList } from './utils';
 
 export const route: Route = {
@@ -18,14 +18,16 @@ export const route: Route = {
     maintainers: ['TonyRL'],
     url: 'javtrailers.com/casts',
     handler,
+    features: {
+        nsfw: true,
+        requirePuppeteer: false,
+    },
 };
 
 async function handler(ctx) {
     const { cast } = ctx.req.param();
 
-    const response = await ofetch(`${baseUrl}/api/casts/${cast}?page=0`, {
-        headers,
-    });
+    const response = await ofetch(`${baseUrl}/api/casts/${cast}?page=0`, { headers });
 
     const list = parseList(response.videos);
 

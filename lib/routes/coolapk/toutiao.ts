@@ -1,5 +1,6 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
+
 import utils from './utils';
 
 export const route: Route = {
@@ -25,8 +26,8 @@ export const route: Route = {
     maintainers: ['xizeyoupan'],
     handler,
     description: `| 参数名称 | 历史头条 | 最新   |
-  | -------- | -------- | ------ |
-  | type     | history  | latest |`,
+| -------- | -------- | ------ |
+| type     | history  | latest |`,
 };
 
 async function handler(ctx) {

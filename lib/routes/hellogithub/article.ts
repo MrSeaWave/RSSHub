@@ -1,5 +1,4 @@
-import { Route } from '@/types';
-
+import type { Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 
@@ -25,8 +24,8 @@ export const route: Route = {
     maintainers: ['moke8', 'nczitzk', 'CaoMeiYouRen'],
     handler,
     description: `| 热门 | 最近 |
-  | ---- | ---- |
-  | hot  | last |`,
+| ---- | ---- |
+| hot  | last |`,
 };
 
 async function handler(ctx) {

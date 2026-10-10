@@ -1,8 +1,8 @@
-import { Route } from '@/types';
-import ofetch from '@/utils/ofetch';
-import { AuthorResponse, LiteratureResponse } from './types';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
 
+import type { AuthorResponse, LiteratureResponse } from './types';
 import { baseUrl, parseLiterature } from './utils';
 
 export const route: Route = {
@@ -33,7 +33,7 @@ async function handler(ctx) {
     const id = ctx.req.param('id');
     const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 25;
 
-    const authorInfo = (await getAuthorById(id)) as AuthorResponse;
+    const authorInfo = await getAuthorById(id);
     const response = await ofetch<LiteratureResponse>(`${baseUrl}/api/literature`, {
         query: {
             sort: 'mostrecent',
@@ -47,7 +47,7 @@ async function handler(ctx) {
     const items = parseLiterature(response.hits.hits);
 
     return {
-        title: `${authorInfo.metadata.name.preferred_name} - INSPIRE`,
+        title: `${authorInfo.metadata.name.preferred_name || authorInfo.metadata.name.value} - INSPIRE`,
         link: `${baseUrl}/authors/${id}`,
         item: items,
     };

@@ -1,5 +1,5 @@
-import got from '@/utils/got';
 import type { Route } from '@/types';
+import got from '@/utils/got';
 
 export const route: Route = {
     path: '/dynamic/:uid?',
@@ -19,8 +19,7 @@ async function handler(ctx) {
             url_slug,
         },
     });
-    const userInfo = userInfoRes.data.data.user;
-    const { user_id, name, avatar } = userInfo;
+    const { user_id, name, avatar } = userInfoRes.data.data.user;
 
     const dynamicRes = await got(`${baseUrl}/api/post/get-list`, {
         searchParams: {
