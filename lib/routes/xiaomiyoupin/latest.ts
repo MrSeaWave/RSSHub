@@ -1,6 +1,7 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
-import { parseModule, parseFloorItem } from './utils';
+
+import { parseFloorItem, parseModule } from './utils';
 
 export const route: Route = {
     path: '/latest',
@@ -20,7 +21,7 @@ export const route: Route = {
             source: ['xiaomiyoupin.com/'],
         },
     ],
-    name: '小米有品每日上新',
+    name: '每日上新',
     maintainers: ['xyqfer', 'DIYgod', 'bigfei'],
     handler,
     url: 'xiaomiyoupin.com/',

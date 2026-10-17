@@ -1,7 +1,9 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
 
@@ -25,37 +27,38 @@ export const route: Route = {
 
 async function handler(ctx) {
     const { type = '' } = ctx.req.param();
-    const title_url = type ? `http://www.mpaypass.com.cn/${type}.html` : 'http://www.mpaypass.com.cn';
+    const titleUrl = type ? `http://www.mpaypass.com.cn/${type}.html` : 'http://www.mpaypass.com.cn';
 
     const response = await got({
         method: 'get',
-        url: title_url,
+        url: titleUrl,
     });
 
     const data = response.data;
 
     const $ = load(data);
 
-    const title_cn = type ? $(`a[href="http://www.mpaypass.com.cn/${type}.html"]`).text() : '最新文章';
+    const titleCn = type ? $(`a[href="http://www.mpaypass.com.cn/${type}.html"], a[href="https://www.mpaypass.com.cn/${type}.html"]`).first().text() : '最新文章';
     const list = $('.newslist')
-        .map(function () {
+        .toArray()
+        .map((item) => {
             const info = {
-                title: $(this).find('#title').text(),
-                link: $(this).find('#title').find('a').attr('href'),
-                time: $(this).find('#time').text(),
-                category: $(this)
+                title: $(item).find('#title').text(),
+                link: $(item).find('#title').find('a').attr('href'),
+                time: $(item).find('#time').text(),
+                category: $(item)
                     .find('#keywords')
                     .find('a')
                     .toArray()
                     .map((e) => $(e).text().trim()),
             };
             return info;
-        })
-        .get();
+        });
 
-    const out = await Promise.all(
-        list.map((info) =>
-            cache.tryGet(info.link, async () => {
+    const out = await pMap(
+        list,
+        async (info) => {
+            const details = await cache.tryGet(info.link!, async () => {
                 const response = await got(info.link);
                 const $ = load(response.data);
                 const newsbody = $('div.newsbody').html();
@@ -63,17 +66,19 @@ async function handler(ctx) {
                 return {
                     title: info.title,
                     link: info.link,
-                    pubDate: timezone(parseDate(info.time), +8),
+                    pubDate: timezone(parseDate(info.time), 8),
                     description: newsbody,
                     category: info.category,
                 };
-            })
-        )
+            });
+            return { ...details, title: info.title, link: info.link, pubDate: timezone(parseDate(info.time), 8), category: info.category };
+        },
+        { concurrency: 3 }
     );
 
     return {
-        title: `移动支付网-${title_cn}`,
-        link: title_url,
+        title: `移动支付网-${titleCn}`,
+        link: titleUrl,
         item: out,
     };
 }

@@ -1,8 +1,10 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
 
-const root_url = 'https://www.hpoi.net';
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
+import got from '@/utils/got';
+
+const rootUrl = 'https://www.hpoi.net';
 
 const titleMap = {
     want: '想买',
@@ -46,9 +48,12 @@ export const route: Route = {
 };
 
 async function handler(ctx) {
-    const { user_id, caty } = ctx.req.param();
+    const { user_id: userId, caty } = ctx.req.param();
+    if (!/^[1-9]\d*$/.test(userId) || !Object.hasOwn(titleMap, caty)) {
+        throw new InvalidParameterError('Invalid user_id or caty: expected a positive user ID and a documented collection category.');
+    }
 
-    const url = `${root_url}/user/${user_id}/hobby?order=actionDate&view=2&favState=${caty}`;
+    const url = `${rootUrl}/user/${userId}/hobby?order=actionDate&view=2&favState=${caty}`;
     const response = await got({
         method: 'get',
         url,
@@ -56,15 +61,15 @@ async function handler(ctx) {
 
     const $ = load(response.data);
     const list = $('.collect-hobby-list-small')
-        .map((_, item) => {
-            item = $(item);
+        .toArray()
+        .map((item) => {
+            const $item = $(item);
             return {
-                title: titleMap[caty] + ': ' + item.find('.name').text(),
-                link: 'https://www.hpoi.net/' + item.find('.name').attr('href'),
-                description: `<img src="${item.find('img').attr('src').replace('/s/', '/n/')}"><br>${item.find('.pay').text()}<br>${item.find('.score').text()}`,
+                title: titleMap[caty] + ': ' + $item.find('.name').text(),
+                link: new URL($item.find('.name').attr('href')!, url).href,
+                description: `<img src="${$item.find('img').attr('src')!.replace('/s/', '/n/')}"><br>${$item.find('.pay').text()}<br>${$item.find('.score').text()}`,
             };
-        })
-        .get();
+        });
 
     const title = $('.hpoi-collect-head .info p').eq(0).text() + '的手办 - ' + titleMap[caty];
 
@@ -72,6 +77,5 @@ async function handler(ctx) {
         title,
         link: url,
         item: list,
-        allowEmpty: true,
     };
 }

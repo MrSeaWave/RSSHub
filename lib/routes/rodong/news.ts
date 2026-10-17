@@ -1,10 +1,12 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
 const host = 'http://www.rodong.rep.kp';
+const languages = { cn: 'zh-CN', en: 'en', ko: 'ko' } satisfies Record<string, Language>;
 
 export const route: Route = {
     path: '/news/:language?',
@@ -20,18 +22,17 @@ export const route: Route = {
         supportScihub: false,
     },
     radar: [
-        {
-            source: ['rodong.rep.kp/cn/index.php', 'rodong.rep.kp/en/index.php', 'rodong.rep.kp/ko/index.php', 'rodong.rep.kp/cn', 'rodong.rep.kp/en', 'rodong.rep.kp/ko'],
-            target: '/news',
-        },
+        { source: ['rodong.rep.kp/cn/index.php', 'rodong.rep.kp/cn'], target: '/news/cn' },
+        { source: ['rodong.rep.kp/en/index.php', 'rodong.rep.kp/en'], target: '/news/en' },
+        { source: ['rodong.rep.kp/ko/index.php', 'rodong.rep.kp/ko'], target: '/news/ko' },
     ],
     name: 'News',
     maintainers: ['TonyRL'],
     handler,
     url: 'rodong.rep.kp/cn/index.php',
     description: `| 조선어 | English | 中文 |
-  | ------ | ------- | ---- |
-  | ko     | en      | cn   |`,
+| ------ | ------- | ---- |
+| ko     | en      | cn   |`,
 };
 
 async function handler(ctx) {
@@ -42,19 +43,19 @@ async function handler(ctx) {
     const $ = load(response);
     const list = $('.date_news_list .row')
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
             return {
-                title: item.find('.media-body').text(),
-                link: `${host}/${language}/${item.find('.media-body a').attr('href')}`,
-                author: item.find('.col-sm-3').text(),
-                pubDate: parseDate(item.find('.news_date').text(), 'YYYY.M.D.'),
+                title: $item.find('.media-body').text(),
+                link: `${host}/${language}/${$item.find('.media-body a').attr('href')}`,
+                author: $item.find('.col-sm-3').text(),
+                pubDate: parseDate($item.find('.news_date').text(), 'YYYY.M.D.'),
             };
         });
 
     const items = await Promise.all(
         list.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 const { data: response } = await got(item.link);
                 const $ = load(response);
 
@@ -68,6 +69,7 @@ async function handler(ctx) {
 
     return {
         title: $('head title').text(),
+        language: languages[language],
         description: $('head meta[name="description"]').attr('content'),
         link,
         item: items,

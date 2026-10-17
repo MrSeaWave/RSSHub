@@ -1,12 +1,17 @@
-import { Route } from '@/types';
+import { FetchError } from 'ofetch';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import got from '@/utils/got';
-import { parseDate } from '@/utils/parse-date';
+import logger from '@/utils/logger';
+import { parseDateInTimezone } from '@/utils/parse-date-in-timezone';
+import { finishArticleItem, WeChatMpError } from '@/utils/wechat-mp';
+
 const baseUrl = 'https://www.slowmist.com';
-import { finishArticleItem } from '@/utils/wechat-mp';
 
 export const route: Route = {
     path: '/:type?',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/slowmist/research',
     parameters: { type: '分类，见下表，默认为公司新闻' },
     features: {
@@ -27,8 +32,8 @@ export const route: Route = {
     handler,
     url: 'slowmist.com/zh/news.html',
     description: `| 公司新闻 | 漏洞披露 | 技术研究 |
-  | -------- | -------- | -------- |
-  | news     | vul      | research |`,
+| -------- | -------- | -------- |
+| news     | vul      | research |`,
 };
 
 async function handler(ctx) {
@@ -60,18 +65,33 @@ async function handler(ctx) {
 
     const response = await got(url);
 
-    let items = (response.data.data || []).map((item) => ({
+    let items: DataItem[] = (response.data.data || []).map((item): DataItem => ({
         title: item.title,
         link: item.url,
         description: item.desc,
-        pubDate: parseDate(item.date),
+        pubDate: item.date ? parseDateInTimezone(item.date, 8) : undefined,
     }));
 
-    items = await Promise.all(items.map((item) => finishArticleItem(item)));
+    items = await pMap(
+        items,
+        async (item) => {
+            try {
+                const detail = await finishArticleItem({ ...item, description: undefined, pubDate: undefined });
+                return { ...detail, description: detail.description || item.description, pubDate: detail.pubDate ?? item.pubDate };
+            } catch (error) {
+                if (!(error instanceof FetchError || error instanceof WeChatMpError)) {
+                    throw error;
+                }
+                logger.warn(`Could not fetch the WeChat article at ${item.link}: ${error.message}`);
+                return item;
+            }
+        },
+        { concurrency: 3 }
+    );
 
     return {
         title,
-        link: url,
+        link: `${baseUrl}/zh/news.html`,
         item: items,
     };
 }

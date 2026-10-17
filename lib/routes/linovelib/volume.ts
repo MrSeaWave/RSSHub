@@ -1,7 +1,8 @@
-import type { Route, Data } from '@/types';
-import type { Context } from 'hono';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+import type { Context } from 'hono';
+
+import type { Data, Route } from '@/types';
+import got from '@/utils/got';
 
 export const route: Route = {
     path: '/volume/:id',
@@ -21,7 +22,8 @@ export const route: Route = {
 async function handler(ctx: Context): Promise<Data> {
     const { id } = ctx.req.param();
     const link = `https://www.linovelib.com/novel/${id}/catalog`;
-    const $ = load((await got(link)).data);
+    const response = await got(link);
+    const $ = load(response.data);
     return {
         title: `${$('.book-meta h1').text()} - 哔哩轻小说`,
         link,
@@ -29,7 +31,7 @@ async function handler(ctx: Context): Promise<Data> {
             .toArray()
             .map((elem) => ({
                 title: $(elem).find('h2').text(),
-                link: $(elem).find('.volume-cover').attr('href'),
+                link: new URL($(elem).find('.volume-cover').attr('href')!, link).href,
             }))
             .toReversed(),
     };

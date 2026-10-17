@@ -1,8 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import { config } from '@/config';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { config } from '@/config';
-import { load } from 'cheerio';
+import { parseDateInTimezone } from '@/utils/parse-date-in-timezone';
 
 export const route: Route = {
     path: '/release/:version?',
@@ -21,7 +24,7 @@ export const route: Route = {
     maintainers: ['nczitzk'],
     handler,
     description: `| 8.0 | 5.7 | 5.6 |
-  | --- | --- | --- |`,
+| --- | --- | --- |`,
 };
 
 async function handler(ctx) {
@@ -43,18 +46,22 @@ async function handler(ctx) {
     let items = $('dt span a')
         .slice(1, -1)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
+            const title = $item.text();
+            const pubDate = title.match(/\((\d{4}-\d{2}-\d{2})(?:,|\))/)?.[1];
 
             return {
-                title: item.text(),
-                link: `${currentUrl}${item.attr('href')}`,
+                title,
+                pubDate: pubDate ? parseDateInTimezone(pubDate, 0) : undefined,
+                link: `${currentUrl}${$item.attr('href')}`,
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
+    items = await pMap(
+        items,
+        (item) =>
+            cache.tryGet(item.link!, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,
@@ -72,8 +79,8 @@ async function handler(ctx) {
                 item.description = content('#docs-body .section').html();
 
                 return item;
-            })
-        )
+            }),
+        { concurrency: 6 }
     );
 
     return {

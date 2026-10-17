@@ -1,0 +1,202 @@
+import type { Cheerio, CheerioAPI } from 'cheerio';
+import { load } from 'cheerio';
+import type { Element } from 'domhandler';
+import type { Context } from 'hono';
+import pMap from 'p-map';
+
+import type { Data, DataItem, Language, Route } from '@/types';
+import { ViewType } from '@/types';
+import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import { renderDescription } from './templates/description';
+
+export const handler = async (ctx: Context): Promise<Data> => {
+    const { category = 'news-events/latest-news' } = ctx.req.param();
+    const limit = getRouteLimit(ctx, 12);
+
+    const baseUrl = 'https://www.semiconductors.org';
+    const targetUrl = `${baseUrl}/${category.endsWith('/') ? category : `${category}/`}`;
+
+    const response = await ofetch(targetUrl);
+    const $: CheerioAPI = load(response);
+    const language = ($('html').attr('lang') ?? 'en') as Language;
+
+    let items: DataItem[] = $('div.col-sm-8')
+        .slice(0, limit)
+        .toArray()
+        .map((el) => {
+            const $el: Cheerio<Element> = $(el);
+            const $aEl: Cheerio<Element> = $el.find('a').first();
+
+            const title: string = $aEl.text();
+            const image: string | undefined = $el
+                .prev()
+                .find('img')
+                .attr('src')
+                ?.replace(/-\d+x\d+\./, '.');
+            const description: string | undefined = renderDescription({
+                images: image
+                    ? [
+                          {
+                              src: image,
+                              alt: title,
+                          },
+                      ]
+                    : undefined,
+                intro: $aEl.next().text(),
+            });
+            const pubDateStr: string | undefined = $el.find('div.resource-item-meta').text().split(/:\s+/).pop();
+            const linkUrl: string | undefined = $aEl.attr('href');
+            const categoryEls: Element[] = $el.find('div.resource-item-category span.ric').toArray();
+            const categories: string[] = [...new Set(categoryEls.map((el) => $(el).text()).filter(Boolean))];
+
+            const processedItem: DataItem = {
+                title,
+                description,
+                pubDate: pubDateStr ? parseDate(`${pubDateStr} +0000`, 'MM/DD/YY ZZ') : undefined,
+                link: linkUrl ? new URL(linkUrl, baseUrl).href : undefined,
+                category: categories,
+                content: {
+                    html: description,
+                    text: $aEl.next().text(),
+                },
+                image,
+                banner: image,
+                language,
+            };
+
+            return processedItem;
+        });
+
+    items = await pMap(
+        items,
+        async (item) => {
+            if (!item.link) {
+                return item;
+            }
+
+            const detail = await cache.tryGet(`${item.link}:details`, async (): Promise<DataItem> => {
+                const detailResponse = await ofetch(item.link!);
+                const $$: CheerioAPI = load(detailResponse);
+
+                const title: string = $$('main#main h1').last().text();
+                const author = $$('main#main > p')
+                    .first()
+                    .text()
+                    .match(/^\s*by\s+(.+)/i)?.[1]
+                    .trim();
+
+                $$('main#main')
+                    .contents()
+                    .filter((_, node) => node.type === 'text' && /^\s*(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+[A-Z]{3}\s+\d{1,2},\s+\d{4},\s+\d{1,2}:\d{2}(?:am|pm)\s*$/i.test(node.data))
+                    .remove();
+                $$('h1').remove();
+                $$('main#main').contents().first().remove();
+                $$('main#main p').first().remove();
+                $$('div.newshr').remove();
+
+                const image: string | undefined = $$('meta[property="og:image"]')
+                    .attr('content')
+                    ?.replace(/-scaled\./, '.');
+                const description: string | undefined = renderDescription({
+                    images: image
+                        ? [
+                              {
+                                  src: image,
+                                  alt: title,
+                              },
+                          ]
+                        : undefined,
+                    description: $$('main#main').html() || undefined,
+                });
+                const pubDateStr: string | undefined = $$('meta[property="article:published_time"]').attr('content');
+                const authorEls: Element[] = $$('meta[name="author"]').toArray();
+                const authors: DataItem['author'] = authorEls.map((authorEl) => {
+                    const $$authorEl: Cheerio<Element> = $$(authorEl);
+
+                    return {
+                        name: $$authorEl.attr('content')!,
+                        url: undefined,
+                        avatar: undefined,
+                    };
+                });
+                const upDatedStr: string | undefined = $$('meta[property="article:modified_time"]').attr('content');
+
+                const processedItem: DataItem = {
+                    title,
+                    description,
+                    pubDate: pubDateStr ? parseDate(pubDateStr) : undefined,
+                    author: author || (authors.length ? authors : undefined),
+                    content: {
+                        html: description,
+                        text: $$('main#main').text(),
+                    },
+                    image,
+                    banner: image,
+                    updated: upDatedStr ? parseDate(upDatedStr) : undefined,
+                    language,
+                };
+
+                return processedItem;
+            });
+            return {
+                ...item,
+                ...detail,
+                pubDate: detail.pubDate ?? item.pubDate,
+            };
+        },
+        { concurrency: 3 }
+    );
+
+    return {
+        title: $('title').text(),
+        description: $('meta[property="og:description"]').attr('content'),
+        link: targetUrl,
+        item: items,
+        image: $('meta[property="og:image"]').attr('content'),
+        author: $('meta[property="og:site_name"]').attr('content'),
+        language,
+        id: $('meta[property="og:url"]').attr('content'),
+    };
+};
+
+export const route: Route = {
+    path: '/:category{.+}?',
+    name: 'Latest News',
+    url: 'www.semiconductors.org',
+    maintainers: ['nczitzk'],
+    handler,
+    example: '/semiconductors/news-events/latest-news',
+    parameters: {
+        category: {
+            description: 'Category, `news-events/latest-news` by default',
+        },
+    },
+    description: `::: tip
+To subscribe to [Latest News](https://www.semiconductors.org/news-events/latest-news/), where the source URL is \`https://www.semiconductors.org/news-events/latest-news/\`, extract the certain parts from this URL to be used as parameters, resulting in the route as [\`/semiconductors/news-events/latest-news\`](https://rsshub.app/semiconductors/news-events/latest-news).
+:::`,
+    categories: ['new-media'],
+    features: {
+        requireConfig: false,
+        requirePuppeteer: false,
+        antiCrawler: false,
+        supportRadar: true,
+        supportBT: false,
+        supportPodcast: false,
+        supportScihub: false,
+    },
+    radar: [
+        {
+            source: ['www.semiconductors.org/news-events/:category'],
+            target: '/news-events/:category',
+        },
+        {
+            source: ['www.semiconductors.org/:category'],
+            target: '/:category',
+        },
+    ],
+    view: ViewType.Articles,
+};

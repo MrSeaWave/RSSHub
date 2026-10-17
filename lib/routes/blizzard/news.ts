@@ -1,7 +1,8 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { Data, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 
 export const route: Route = {
     path: '/news/:language?/:category?',
@@ -21,43 +22,43 @@ export const route: Route = {
     handler,
     description: `Categories
 
-  | Category               | Slug                |
-  | ---------------------- | ------------------- |
-  | All News               |                     |
-  | Diablo II: Resurrected | diablo2             |
-  | Diablo III             | diablo3             |
-  | Diablo IV              | diablo4             |
-  | Diablo Immortal        | diablo-immortal     |
-  | Hearthstone            | hearthstone         |
-  | Heroes of the Storm    | heroes-of-the-storm |
-  | Overwatch 2            | overwatch           |
-  | StarCraft: Remastered  | starcraft           |
-  | StarCraft II           | starcraft2          |
-  | World of Warcraft      | world-of-warcraft   |
-  | Warcraft 3: Reforged   | warcraft3           |
-  | Warcraft Rumble        | warcraft-rumble     |
-  | Battle.net             | battlenet           |
-  | BlizzCon               | blizzcon            |
-  | Inside Blizzard        | blizzard            |
+| Category               | Slug                |
+| ---------------------- | ------------------- |
+| All News               |                     |
+| Diablo II: Resurrected | diablo2             |
+| Diablo III             | diablo3             |
+| Diablo IV              | diablo4             |
+| Diablo Immortal        | diablo-immortal     |
+| Hearthstone            | hearthstone         |
+| Heroes of the Storm    | heroes-of-the-storm |
+| Overwatch 2            | overwatch           |
+| StarCraft: Remastered  | starcraft           |
+| StarCraft II           | starcraft2          |
+| World of Warcraft      | world-of-warcraft   |
+| Warcraft 3: Reforged   | warcraft3           |
+| Warcraft Rumble        | warcraft-rumble     |
+| Battle.net             | battlenet           |
+| BlizzCon               | blizzcon            |
+| Inside Blizzard        | blizzard            |
 
-  Language codes
+Language codes
 
-  | Language           | Code  |
-  | ------------------ | ----- |
-  | Deutsch            | de-de |
-  | English (US)       | en-us |
-  | English (EU)       | en-gb |
-  | Español (EU)       | es-es |
-  | Español (Latino)   | es-mx |
-  | Français           | fr-fr |
-  | Italiano           | it-it |
-  | Português (Brasil) | pt-br |
-  | Polski             | pl-pl |
-  | Русский            | ru-ru |
-  | 한국어             | ko-kr |
-  | ภาษาไทย            | th-th |
-  | 日本語             | ja-jp |
-  | 繁體中文           | zh-tw |`,
+| Language           | Code  |
+| ------------------ | ----- |
+| Deutsch            | de-de |
+| English (US)       | en-us |
+| English (EU)       | en-gb |
+| Español (EU)       | es-es |
+| Español (Latino)   | es-mx |
+| Français           | fr-fr |
+| Italiano           | it-it |
+| Português (Brasil) | pt-br |
+| Polski             | pl-pl |
+| Русский            | ru-ru |
+| 한국어             | ko-kr |
+| ภาษาไทย            | th-th |
+| 日本語             | ja-jp |
+| 繁體中文           | zh-tw |`,
 };
 
 const GAME_MAP = {
@@ -138,6 +139,25 @@ const GAME_MAP = {
     },
 };
 
+const languages = {
+    'de-de': 'de-de',
+    'en-us': 'en-us',
+    'en-gb': 'en-gb',
+    'es-es': 'es-es',
+    'es-mx': 'es-mx',
+    'fr-fr': 'fr-fr',
+    'it-it': 'it-it',
+    'pt-br': 'pt-br',
+    'pl-pl': 'pl',
+    'ru-ru': 'ru-ru',
+    'ko-kr': 'ko',
+    'th-th': 'th',
+    'ja-jp': 'ja',
+    'zh-tw': 'zh-TW',
+} satisfies Record<string, Language>;
+
+const isLanguageKey = (key: string): key is keyof typeof languages => Object.hasOwn(languages, key);
+
 function getSearchParams(category = 'all') {
     return category === 'all'
         ? Object.values(GAME_MAP)
@@ -146,7 +166,7 @@ function getSearchParams(category = 'all') {
         : `feedCxpProductIds[]=${GAME_MAP[category].id}`;
 }
 
-async function handler(ctx) {
+async function handler(ctx): Promise<Data> {
     const category = GAME_MAP[ctx.req.param('category')]?.key || 'all';
     const language = ctx.req.param('language') || 'en-us';
     const rootUrl = `https://news.blizzard.com/${language}`;
@@ -155,10 +175,9 @@ async function handler(ctx) {
     let rssTitle = '';
 
     const {
-        data: {
-            feed: { contentItems: response },
-        },
+        data: { feed },
     } = await got(`${apiUrl}?${getSearchParams(category)}`);
+    const { contentItems: response } = feed;
 
     const list = response.map((item) => {
         const content = item.properties;
@@ -173,14 +192,14 @@ async function handler(ctx) {
             pubDate: content.lastUpdated,
         };
     });
-
+    const selectedList = list;
     const items = await Promise.all(
-        list.map((item) =>
+        selectedList.map((item) =>
             cache.tryGet(item.link, async () => {
                 try {
                     const { data: response } = await got(item.link);
                     const $ = load(response);
-                    item.description = $('.Content').html();
+                    item.description = $('.Content .blog').html() ?? item.description;
                     return item;
                 } catch {
                     return item;
@@ -189,9 +208,11 @@ async function handler(ctx) {
         )
     );
 
+    const locale = feed.context.locale.toLowerCase();
     return {
         title: rssTitle,
         link: currentUrl,
+        language: isLanguageKey(locale) ? languages[locale] : undefined,
         item: items,
     };
 }

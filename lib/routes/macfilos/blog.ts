@@ -1,12 +1,15 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
     path: '/blog',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/macfilos/blog',
     parameters: {},
     features: {
@@ -40,24 +43,25 @@ async function handler(ctx) {
     const $ = load(response.data);
 
     let items = $('.entry-title a')
-        .slice(0, ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 10)
+        .slice(0, getRouteLimit(ctx, 10))
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
-            const parent = item.parent().parent();
+            const parent = $item.parent().parent();
 
             return {
-                title: item.text(),
-                link: item.attr('href'),
+                title: $item.text(),
+                link: $item.attr('href'),
                 author: parent.find('.td-post-author-name a').text(),
-                pubDate: parseDate(parent.find('.td-post-date time').attr('datetime')),
+                pubDate: parseDate(parent.find('.td-post-date time').attr('datetime')!),
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
+    items = await pMap(
+        items,
+        async (item) => {
+            const description = await cache.tryGet(`macfilos:article:${item.link}`, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,
@@ -65,18 +69,20 @@ async function handler(ctx) {
 
                 const content = load(detailResponse.data);
 
-                content('hr').nextAll().remove();
-                content('hr').remove();
+                const donationHeading = content('.td-post-content h3').filter((_, element) => content(element).text().startsWith('Make a donation'));
+                donationHeading.prev('hr').remove();
+                donationHeading.nextAll().remove();
+                donationHeading.remove();
 
-                content('img').each(function () {
-                    content(this).removeAttr('srcset');
+                content('img').each((_, el) => {
+                    content(el).removeAttr('srcset');
                 });
 
-                item.description = content('.td-post-content').html();
-
-                return item;
-            })
-        )
+                return content('.td-post-content').html();
+            });
+            return { ...item, description };
+        },
+        { concurrency: 3 }
     );
 
     return {

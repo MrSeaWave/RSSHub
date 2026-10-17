@@ -1,6 +1,8 @@
-import { Route, DataItem } from '@/types';
-import ofetch from '@/utils/ofetch';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -34,13 +36,13 @@ export const route: Route = {
 };
 
 interface ThreadIndexResult {
-    ThreadIndex: {
+    ThreadIndex: Array<{
         id: number;
         subject: string;
         created_at: string;
         user: { nickname: string };
         forum: { name: string };
-    }[];
+    }>;
 }
 interface ThreadInfoResult {
     data: {
@@ -62,7 +64,7 @@ async function handler(ctx) {
     if (ctx.req.param('type') === 'hot') {
         type = TypeMap.hot;
     }
-    const res = await ofetch<ThreadIndexResult>('https://bbs.deepin.org.cn/api/v1/thread/index', {
+    const res = await ofetch<ThreadIndexResult>('https://bbs.deepin.org/api/v1/thread/index', {
         query: {
             languages: 'zh_CN',
             order: 'updated_at',
@@ -72,9 +74,12 @@ async function handler(ctx) {
             accept: 'application/json',
         },
     });
-    const items = await Promise.all(
-        res.ThreadIndex.map((thread) => {
-            const link = 'https://bbs.deepin.org.cn/post/' + thread.id;
+    const orderedThreads = res.ThreadIndex;
+    const candidates = orderedThreads;
+    const items = await pMap(
+        candidates,
+        (thread) => {
+            const link = 'https://bbs.deepin.org/post/' + thread.id;
             return cache.tryGet(link, async () => {
                 const item: DataItem = {
                     id: String(thread.id),
@@ -85,14 +90,14 @@ async function handler(ctx) {
                     category: [thread.forum.name],
                     description: '',
                 };
-                const cacheData = await ofetch<ThreadInfoResult>('https://bbs.deepin.org.cn/api/v1/thread/info?id=' + item.id);
+                const cacheData = await ofetch<ThreadInfoResult>('https://bbs.deepin.org/api/v1/thread/info?id=' + item.id);
                 if (cacheData) {
-                    const info = cacheData as ThreadInfoResult;
-                    item.description = info.data.post.message;
+                    item.description = cacheData.data.post.message;
                 }
                 return item;
-            }) as Promise<DataItem>;
-        })
+            });
+        },
+        { concurrency: 3 }
     );
     return {
         title: 'deepin论坛主页 - ' + type.title,

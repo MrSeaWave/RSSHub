@@ -1,16 +1,20 @@
-import { Data, DataItem, Route } from '@/types';
+import { load } from 'cheerio';
+import type { Context } from 'hono';
+import pMap from 'p-map';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Data, DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
-import InvalidParameterError from '@/errors/types/invalid-parameter';
-import type { Context } from 'hono';
 
 const baseUrl = 'https://www.jwc.uestc.edu.cn/';
 const detailUrl = 'https://www.jwc.uestc.edu.cn/info/';
 
 const dateTimeRegex = /(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/;
+
+class CampusAccessError extends Error {}
 
 const typeUrlMap = {
     important: 'hard/?page=1',
@@ -52,14 +56,14 @@ export const route: Route = {
     handler,
     url: 'www.jwc.uestc.edu.cn/',
     description: `\
-  | 重要公告  | 学生事务公告 | 教师事务公告 | 教学新闻 | 办公室 |
-  | --------- | ------------ | ------------ | -------- | ------ |
-  | important | student      | teacher      | teaching | office |`,
+| 重要公告  | 学生事务公告 | 教师事务公告 | 教学新闻 | 办公室 |
+| --------- | ------------ | ------------ | -------- | ------ |
+| important | student      | teacher      | teaching | office |`,
 };
 
 async function handler(ctx: Context): Promise<Data> {
     const type = ctx.req.param('type') || 'important';
-    if (type in typeUrlMap === false) {
+    if (!Object.hasOwn(typeUrlMap, type)) {
         throw new InvalidParameterError('type not supported');
     }
     const typeName = typeNameMap[type];
@@ -69,35 +73,50 @@ async function handler(ctx: Context): Promise<Data> {
     const $ = load(indexContent);
     const entries = $('div.textAreo.clearfix').toArray();
 
-    const items = entries.map(async (entry) => {
-        const element = $(entry);
-        const newsTitle = element.find('a').attr('title') ?? '';
-        const newsLink = detailUrl + element.find('a').attr('newsid');
+    const out = await pMap(
+        entries,
+        async (entry) => {
+            const element = $(entry);
+            const newsTitle = element.find('a').attr('title') ?? '';
+            const newsLink = detailUrl + element.find('a').attr('newsid');
+            const listingDate = parseDate(element.find('i').text().trim(), 'YYYY/MM/DD', true);
 
-        const newsDetail = await cache.tryGet(newsLink, async () => {
-            const newsContent = await ofetch(newsLink);
-            const content = load(newsContent);
+            try {
+                const detail = await cache.tryGet(`uestc:jwc:v4:${newsLink}`, async (): Promise<Pick<DataItem, 'description' | 'pubDate'>> => {
+                    const newsContent = await ofetch(newsLink);
+                    const content = load(newsContent);
+                    if (content('.failtip2').text().includes('您的IP地址非电子科技大学的IP地址')) {
+                        throw new CampusAccessError('This article is only available from the UESTC campus network.');
+                    }
 
-            const basicInfo = content('div.detail_header').find('div.item').text();
-            const match = dateTimeRegex.exec(basicInfo);
+                    const basicInfo = content('div.detail_header').find('div.item').text();
+                    const match = dateTimeRegex.exec(basicInfo);
+                    const pubDate = match ? parseDate(match[1], 'YYYY-MM-DD HH:mm', true) : undefined;
 
-            return {
-                title: newsTitle,
-                link: newsLink,
-                pubDate: match ? timezone(parseDate(match[1]), +8) : null,
-                description: content('div.NewText').html(),
-            };
-        });
-
-        return newsDetail;
-    });
-
-    const out = await Promise.all(items);
+                    return {
+                        pubDate: pubDate && !Number.isNaN(pubDate.getTime()) ? timezone(pubDate, 8) : undefined,
+                        description: content('div.NewText').html(),
+                    };
+                });
+                return { title: newsTitle, link: newsLink, ...detail };
+            } catch (error) {
+                if (!(error instanceof CampusAccessError)) {
+                    throw error;
+                }
+                return {
+                    title: newsTitle,
+                    link: newsLink,
+                    pubDate: Number.isNaN(listingDate.getTime()) ? undefined : timezone(listingDate, 8),
+                };
+            }
+        },
+        { concurrency: 3 }
+    );
 
     return {
         title: `教务处通知（${typeName}）`,
         link: baseUrl,
         description: `电子科技大学教务处通知（${typeName}）`,
-        item: out as DataItem[],
+        item: out,
     };
 }

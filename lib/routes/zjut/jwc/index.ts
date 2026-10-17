@@ -1,8 +1,10 @@
-import { Data, Route } from '@/types';
-import cache from '@/utils/cache';
-import { parseDate } from '@/utils/parse-date';
 import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Data, Route } from '@/types';
+import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
 
 const rootUrl = 'http://www.jwc.zjut.edu.cn/';
@@ -21,7 +23,7 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    name: '浙江工业大学教务处',
+    name: '教务处',
     maintainers: ['zhullyb'],
     url: 'www.jwc.zjut.edu.cn',
     handler,
@@ -31,24 +33,24 @@ export const route: Route = {
             target: '/jwc/:type',
         },
     ],
-    description: `| 板块 | 参数 |
-| ------- | ------- |
-| 新闻动态 | 1838 |
-| 课程思政 | 1842 |
-| 校内动态 | 2613 |
-| 学习思考 | 2614 |
-| 成果展示 | 2615 |
-| 媒体聚焦 | 2616 |
-| 制度文件 | 2617 |
-| 教学运行 | 1849 |
-| 实践竞赛 | 1850 |
-| 留学生Notice | 1851 |
-| 项目申报 | 1852 |
-| 学籍管理 | 1853 |
-| 办事指南 | 1839 |`,
+    description: `| 板块          | 参数 |
+| ------------- | ---- |
+| 新闻动态      | 1838 |
+| 课程思政      | 1842 |
+| 校内动态      | 2613 |
+| 学习思考      | 2614 |
+| 成果展示      | 2615 |
+| 媒体聚焦      | 2616 |
+| 制度文件      | 2617 |
+| 教学运行      | 1849 |
+| 实践竞赛      | 1850 |
+| 留学生 Notice | 1851 |
+| 项目申报      | 1852 |
+| 学籍管理      | 1853 |
+| 办事指南      | 1839 |`,
 };
 
-async function handler(ctx) {
+async function handler(ctx): Promise<Data> {
     const type = Number.parseInt(ctx.req.param('type'));
     const response = await ofetch(rootUrl + type + '/list.htm');
     const $ = load(response);
@@ -67,7 +69,9 @@ async function handler(ctx) {
                 } else if (!link.startsWith('http')) {
                     link = rootUrl.slice(0, -1) + link;
                 }
-                const pubDate = timezone(parseDate(cheerioItem.find('.news_meta').text()), +8);
+                const dateText = cheerioItem.find('.news_meta').text();
+                const date = dateText.trim() ? parseDate(dateText) : undefined;
+                const pubDate = date && !Number.isNaN(date.getTime()) ? timezone(date, 8) : undefined;
 
                 return {
                     title,
@@ -78,17 +82,16 @@ async function handler(ctx) {
                 return {
                     title: '',
                     link: '',
-                    pubDate: Date.now(),
                 };
             }
         })
         .filter((item) => item.title && item.link);
 
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
+    const items = await pMap(
+        list,
+        async (item) => {
+            const description = await cache.tryGet(`zjut:jwc:details:${item.link}`, async () => {
                 const newItem = {
-                    ...item,
                     description: '',
                 };
                 if (host === new URL(item.link).hostname) {
@@ -98,20 +101,22 @@ async function handler(ctx) {
                     } else {
                         const response = await ofetch(item.link);
                         const $ = load(response);
-                        newItem.description = $('.wp_articlecontent').html() || '';
+                        newItem.description = $('.wp_articlecontent').html() ?? '';
                     }
                 } else {
                     // 涉及到其他站点，不方便做统一的 html 解析，直接返回链接
                     newItem.description = item.link;
                 }
-                return newItem;
-            })
-        )
+                return newItem.description;
+            });
+            return { ...item, description };
+        },
+        { concurrency: 3 }
     );
 
     return {
         title: $('head > title').text() + ' - 浙江工业大学教务处',
         link: rootUrl + type + '/list.htm',
         item: items,
-    } as Data;
+    };
 }

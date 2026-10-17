@@ -1,8 +1,10 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import utils from './utils';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+
+import utils from './utils';
 
 export const route: Route = {
     path: '/tfbd/:caty/:id',
@@ -19,7 +21,11 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['tfbd.ccf.org.cn/tfbd/:caty/:id', 'tfbd.ccf.org.cn/'],
+            source: ['tfbd.ccf.org.cn/tfbd/:caty/:id'],
+        },
+        {
+            source: ['tfbd.ccf.org.cn/'],
+            target: '/tfbd/xwdt/tzgg',
         },
     ],
     name: '大数据专家委员会',

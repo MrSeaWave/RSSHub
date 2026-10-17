@@ -1,8 +1,9 @@
-import { Route } from '@/types';
-import ofetch from '@/utils/ofetch';
 import { load } from 'cheerio';
-import { parseDate } from '@/utils/parse-date';
 import type { Context } from 'hono';
+
+import type { Route } from '@/types';
+import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
 
 const baseUrl = 'https://developers.googleblog.com';
 
@@ -34,6 +35,10 @@ export const route: Route = {
         {
             source: ['developers.googleblog.com'],
         },
+        {
+            source: ['developers.googleblog.com/:locale/search'],
+            target: '/developers/:locale',
+        },
     ],
 };
 
@@ -46,17 +51,19 @@ async function handler(ctx: Context) {
     const items = $('.search-result')
         .toArray()
         .map((element) => {
-            const dateCategory = $(element).find('.search-result__eyebrow').text().trim();
-            const [date, category] = dateCategory.split(' / ');
+            const dateCategory = $(element).find('.search-result__eyebrow').text();
+            const [date, category] = dateCategory.split(' / ', 2);
+            const calendar = date?.replace(/^(\d{4})(?:年|년\s*)(\d{1,2})(?:月|월\s*)(\d{1,2})(?:日|일)$/, '$1-$2-$3');
+            const publicationDate = calendar ? parseDate(`${calendar} UTC`) : undefined;
             const titleElement = $(element).find('.search-result__title a');
-            const title = titleElement.text().trim();
+            const title = titleElement.text();
             const link = titleElement.attr('href');
-            const summary = $(element).find('.search-result__summary').text().trim();
+            const summary = $(element).find('.search-result__summary').text();
 
             return {
                 title,
                 link: `${baseUrl}${link}`,
-                pubDate: parseDate(date),
+                pubDate: publicationDate && !Number.isNaN(publicationDate.getTime()) ? publicationDate : undefined,
                 description: summary,
                 author: 'Google',
                 category: [category],

@@ -1,17 +1,25 @@
-import { Route } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
-
-import cache from '@/utils/cache';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Language, Route } from '@/types';
+import cache from '@/utils/cache';
+import { evaluateScriptData } from '@/utils/evaluate-script';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import { art } from '@/utils/render';
-import path from 'node:path';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
+import { isValidHost } from '@/utils/valid-host';
+
+import { renderDescription } from './templates/description';
 
 export const handler = async (ctx) => {
     const { conference } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 12;
+    if (conference && !isValidHost(conference)) {
+        throw new InvalidParameterError('Invalid conference');
+    }
+
+    const limit = getRouteLimit(ctx, 12);
 
     const rootUrl = 'https://www.infoq.com';
     const currentUrl = new URL(`${conference ? `${conference}/` : ''}presentations/`, rootUrl).href;
@@ -20,19 +28,19 @@ export const handler = async (ctx) => {
 
     const $ = load(response);
 
-    const language = $('html').prop('lang');
+    const language = $('html').prop('lang') as Language;
 
     let items = $('ul[data-tax="presentations"] li[data-path]')
         .slice(0, limit)
         .toArray()
         .map((item) => {
-            item = $(item);
+            const $item = $(item);
 
-            const a = item.find('h3.card__title a');
+            const a = $item.find('h3.card__title a');
 
-            const title = a.prop('title') || a.text().trim();
-            const image = item.find('img.card__image').prop('src');
-            const description = art(path.join(__dirname, 'templates/description.art'), {
+            const title = a.prop('title') || a.text();
+            const image = $item.find('img.card__image').prop('src');
+            const description = renderDescription({
                 images: image
                     ? [
                           {
@@ -41,31 +49,32 @@ export const handler = async (ctx) => {
                           },
                       ]
                     : undefined,
-                intro: item.find('p.card__excerpt').text(),
+                intro: $item.find('p.card__excerpt').text(),
             });
-            const link = new URL(a.prop('href'), rootUrl).href;
-            const guid = `infoq-${item.prop('data-path').replace(/^\//, '')}`;
-            const length = item.find('div.card__length').text() || undefined;
+            const link = new URL(a.prop('href')!, rootUrl).href;
+            const guid = `infoq-${$item.prop('data-path').replace(/^\//, '')}`;
+            const length = $item.find('div.card__length').text() || undefined;
+            const calendarDate = parseDate($item.find('span.card__date span').text().trim(), 'MMM DD, YYYY', true);
 
             return {
                 title,
                 description,
-                pubDate: parseDate(item.find('span.card__date span').text().trim()),
+                pubDate: Number.isFinite(calendarDate.getTime()) ? timezone(calendarDate, 0) : undefined,
                 link,
-                category: item
+                category: $item
                     .find('div.card__topics')
                     .toArray()
                     .map((c) => $(c).text().trim()),
-                author: item
+                author: $item
                     .find('div.card__authors a')
                     .toArray()
-                    .map((a) => $(a).text().trim())
+                    .map((a) => $(a).text())
                     .join('/'),
                 guid,
                 id: guid,
                 content: {
                     html: description,
-                    text: item.find('p.card__excerpt').text(),
+                    text: $item.find('p.card__excerpt').text(),
                 },
                 image,
                 banner: image,
@@ -77,8 +86,9 @@ export const handler = async (ctx) => {
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
+    items = await pMap(
+        items,
+        (item) =>
             cache.tryGet(item.link, async () => {
                 const { data: detailResponse } = await got(item.link);
 
@@ -90,13 +100,14 @@ export const handler = async (ctx) => {
                 const length = $$('div.player__actions span').text() || undefined;
 
                 const script = $$('script[type="text/javascript"]').text();
-                const videoSrc = script.match(/P\.s\s=\s'(.*?)';/)?.[1] ?? undefined;
-                const poster = script.match(/P\.c\(.*?isWideScreen,\s'(.*?)',\s/)?.[1] ?? undefined;
-                const topicsStr = script.match(/var\stopicsInPage\s=\sJSON\.parse\('(.*?)'\);/)?.[1]?.replace(/\\/g, '') ?? undefined;
+                const videoSrc = script.match(/P\.s\s=\s'(.*?)';/)?.[1];
+                const poster = script.match(/P\.c\(.*?isWideScreen,\s'(.*?)',\s/)?.[1];
+                const topicsLiteral = script.match(/var\s+topicsInPage\s*=\s*JSON\.parse\(('(?:\\.|[^'\\])*')\)/)?.[1];
+                const topicsStr = topicsLiteral ? await evaluateScriptData<string>(`const topics = ${topicsLiteral};`, 'topics') : undefined;
 
                 if (videoSrc) {
                     $$('div.player').replaceWith(
-                        art(path.join(__dirname, 'templates/description.art'), {
+                        renderDescription({
                             videos: [
                                 {
                                     src: videoSrc,
@@ -108,11 +119,25 @@ export const handler = async (ctx) => {
                     );
                 }
 
-                const title = $$('meta[property="og:title"]').prop('content').trim();
+                const title = $$('meta[property="og:title"]').prop('content');
                 const image = $$('meta[property="twitter:image"]').prop('content') || $$('meta[property="og:image"]').prop('content');
 
                 item.title = title;
-                item.pubDate = parseDate($$('p.date').text());
+                const articleMetadata = $$('script[type="application/ld+json"]')
+                    .toArray()
+                    .map((script) => JSON.parse($$(script).text()))
+                    .find((metadata) => metadata['@type'] === 'NewsArticle');
+                const published = articleMetadata?.datePublished;
+                const calendarDate = parseDate($$('p.date').text().trim(), 'MMM DD, YYYY', true);
+                item.pubDate =
+                    typeof published === 'string' &&
+                    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/.test(published) &&
+                    Number.isFinite(parseDate(published.slice(0, 10), 'YYYY-MM-DD', true).getTime()) &&
+                    Number.isFinite(parseDate(published).getTime())
+                        ? parseDate(published)
+                        : Number.isFinite(calendarDate.getTime())
+                          ? timezone(calendarDate, 0)
+                          : undefined;
                 item.link = $$('meta[property="og:url"]').prop('content');
                 item.category = topicsStr ? JSON.parse(topicsStr).map((t) => t.name) : $$('meta[name="keywords"]').prop('content').split(/,/);
                 item.author = $$('ul.authors a.author__link')
@@ -122,7 +147,7 @@ export const handler = async (ctx) => {
 
                 $$('div.article__content').nextAll().remove();
 
-                const description = art(path.join(__dirname, 'templates/description.art'), {
+                const description = renderDescription({
                     images: image
                         ? [
                               {
@@ -131,7 +156,7 @@ export const handler = async (ctx) => {
                               },
                           ]
                         : undefined,
-                    description: $$('article.article').html(),
+                    description: $$('article.article').html() ?? undefined,
                 });
 
                 item.description = description;
@@ -148,8 +173,8 @@ export const handler = async (ctx) => {
                 item.itunes_duration = length;
 
                 return item;
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
     const title = $('title').text();
@@ -160,7 +185,6 @@ export const handler = async (ctx) => {
         description: $('meta[name="description"]').prop('content'),
         link: currentUrl,
         item: items,
-        allowEmpty: true,
         image,
         author: title.split(/-/).pop(),
         language,
@@ -175,11 +199,10 @@ export const route: Route = {
     handler,
     example: '/infoq/presentations',
     parameters: { conference: 'Conference, all by default, can be found in URL' },
-    description: `:::tip
-  If you subscribe to [InfoQ Live Jan 2024](https://www.infoq.com/infoq-live-jan-2024/presentations/)，where the URL is \`https://www.infoq.com/infoq-live-jan-2024/presentations/\`, extract the part \`https://www.infoq.com/\` to the end, which is \`/presentations/\`, and use it as the parameter to fill in. Therefore, the route will be [\`/infoq/presentations/infoq-live-jan-2024\`](https://rsshub.app/infoq/presentations/infoq-live-jan-2024).
-  :::
-    `,
-    categories: ['programming', 'popular'],
+    description: `::: tip
+If you subscribe to [InfoQ Live Jan 2024](https://www.infoq.com/infoq-live-jan-2024/presentations/)，where the URL is \`https://www.infoq.com/infoq-live-jan-2024/presentations/\`, extract the part \`https://www.infoq.com/\` to the end, which is \`/presentations/\`, and use it as the parameter to fill in. Therefore, the route will be [\`/infoq/presentations/infoq-live-jan-2024\`](https://rsshub.app/infoq/presentations/infoq-live-jan-2024).
+:::`,
+    categories: ['programming'],
 
     features: {
         requireConfig: false,
@@ -192,12 +215,12 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['www.infoq.com/presentations', 'www.infoq.com/:conference/presentations'],
-            target: (params) => {
-                const conference = params.conference;
-
-                return `/presentations${conference ? `/${conference}` : ''}`;
-            },
+            source: ['www.infoq.com/presentations'],
+            target: '/presentations',
+        },
+        {
+            source: ['www.infoq.com/:conference/presentations'],
+            target: '/presentations/:conference',
         },
     ],
 };

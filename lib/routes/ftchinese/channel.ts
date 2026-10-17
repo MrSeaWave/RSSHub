@@ -1,4 +1,6 @@
-import { Route } from '@/types';
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
+
 import utils from './utils';
 
 export const route: Route = {
@@ -14,25 +16,30 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    name: 'FT 中文网',
+    name: '频道',
     maintainers: ['HenryQW', 'xyqfer'],
     handler,
-    description: `:::tip
-  -   不支持付费文章。
-  :::
+    description: `::: tip
 
-  通过提取文章全文，以提供比官方源更佳的阅读体验。
+- 不支持付费文章。
 
-  支持所有频道，频道名称见 [官方频道 RSS](http://www.ftchinese.com/channel/rss.html).
+:::
 
-  -   频道为单一路径，如 \`http://www.ftchinese.com/rss/news\` 则为 \`/ftchinese/simplified/news\`.
-  -   频道包含多重路径，如 \`http://www.ftchinese.com/rss/column/007000002\` 则替换 \`/\` 为 \`-\` \`/ftchinese/simplified/column-007000002\`.`,
+通过提取文章全文，以提供比官方源更佳的阅读体验。
+
+支持所有频道，频道名称见 [官方频道 RSS](http://www.ftchinese.com/channel/rss.html).
+
+- 频道为单一路径，如 \`http://www.ftchinese.com/rss/news\` 则为 \`/ftchinese/simplified/news\`.
+- 频道包含多重路径，如 \`http://www.ftchinese.com/rss/column/007000002\` 则替换 \`/\` 为 \`-\` \`/ftchinese/simplified/column-007000002\`.`,
 };
 
 async function handler(ctx) {
+    const language = ctx.req.param('language');
+    if (language !== 'simplified' && language !== 'traditional') {
+        throw new InvalidParameterError('language must be simplified or traditional.');
+    }
     return await utils.getData({
-        site: ctx.req.param('language') === 'simplified' ? 'www' : 'big5',
+        site: language === 'simplified' ? 'www' : 'big5',
         channel: ctx.req.param('channel'),
-        ctx,
     });
 }

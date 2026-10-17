@@ -1,6 +1,7 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -43,17 +44,19 @@ async function handler(ctx) {
     const items = $('.post_grid')
         .toArray()
         .map((item) => {
-            item = $(item);
+            const $item = $(item);
 
-            const author = item.find('.post_author').text();
-            const description = item.find('.post_body');
+            const author = $item.find('.post_author').text();
+            const description = $item.find('.post_body');
+            const date = $item.find('.post_date').attr('title');
+            const pubDate = date ? parseDate(date) : undefined;
 
             return {
                 author,
                 description: description.html(),
                 title: `${author}: ${description.text()}`,
-                link: item.find('.post_date a').attr('href'),
-                pubDate: parseDate(item.find('.post_date').attr('title')),
+                link: $item.find('.post_date a').attr('href'),
+                pubDate: pubDate && Number.isFinite(pubDate.getTime()) ? pubDate : undefined,
             };
         });
 

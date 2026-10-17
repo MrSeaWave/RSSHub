@@ -1,6 +1,9 @@
+import { load } from 'cheerio';
+
 import type { Route } from '@/types';
 import got from '@/utils/got';
-import { load } from 'cheerio';
+import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/search/:params',
@@ -19,6 +22,12 @@ export const route: Route = {
 
 async function handler(ctx) {
     const query = new URLSearchParams(ctx.req.param('params'));
+    if (query.has('page')) {
+        query.set('page', '1');
+    }
+    if (query.has('start')) {
+        query.set('start', '0');
+    }
     const { data: html } = await got('https://store.steampowered.com/search/', {
         searchParams: query,
     });
@@ -26,7 +35,7 @@ async function handler(ctx) {
     return {
         title: 'Steam search result',
         description: `Query: ${query.toString()}`,
-        link: /g_strUnfilteredURL\s=\s'(.*)'/.exec(html)[1],
+        link: /g_strUnfilteredURL\s=\s'(.*)'/.exec(html)![1],
         item: $('#search_result_container a')
             .toArray()
             .map((a) => {
@@ -34,11 +43,10 @@ async function handler(ctx) {
                 const isBundle = !!$el.attr('data-ds-bundle-data');
                 const isDiscounted = $el.find('.discount_original_price').length > 0;
                 const hasReview = $el.find('.search_review_summary').length > 0;
-                const appID: string | undefined = $el.attr('data-ds-appid');
 
                 let desc = '';
                 if (isBundle) {
-                    const bundle = JSON.parse($el.attr('data-ds-bundle-data'));
+                    const bundle = JSON.parse($el.attr('data-ds-bundle-data')!);
                     desc += 'Bundle\n';
                     if (bundle.m_bRestrictGifting) {
                         desc += 'Restrict gifting\n';
@@ -46,22 +54,24 @@ async function handler(ctx) {
                     desc += `Items count: ${bundle.m_rgItems.length}\n`;
                 }
                 if (isDiscounted) {
-                    desc += `Discount: ${$el.find('.discount_pct').text().trim()}\n`;
-                    desc += `Original price: ${$el.find('.discount_original_price').text().trim()}\n`;
-                    desc += `Discounted price: ${$el.find('.discount_final_price').text().trim()}\n`;
+                    desc += `Discount: ${$el.find('.discount_pct').text()}\n`;
+                    desc += `Original price: ${$el.find('.discount_original_price').text()}\n`;
+                    desc += `Discounted price: ${$el.find('.discount_final_price').text()}\n`;
                 } else {
-                    desc += `Price: ${$el.find('.discount_final_price').text().trim()}\n`;
+                    desc += `Price: ${$el.find('.discount_final_price').text()}\n`;
                 }
                 if (hasReview) {
                     desc += $el.find('.search_review_summary').attr('data-tooltip-html');
                 }
+                const releaseDate = $el.find('.search_released').text().trim();
                 return {
+                    pubDate: /^\d{1,2} [A-Z]{3}, \d{4}$/i.test(releaseDate) ? timezone(parseDate(releaseDate, 'D MMM, YYYY'), 0) : undefined,
                     title: $el.find('span.title').text(),
                     link: $el.attr('href'),
                     description: desc.replaceAll('\n', '<br>'),
                     media: {
                         thumbnail: {
-                            url: `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appID}/header.jpg`,
+                            url: $el.find('.search_capsule img').attr('src')!,
                         },
                     },
                 };

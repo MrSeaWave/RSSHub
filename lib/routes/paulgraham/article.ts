@@ -1,7 +1,9 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -23,36 +25,44 @@ export const route: Route = {
         },
     ],
     name: 'Essays',
-    maintainers: ['Maecenas', 'nczitzk'],
+    maintainers: ['Maecenas', 'nczitzk', 'dvorak0'],
     handler,
     url: 'paulgraham.com/articles.html',
 };
 
 async function handler(ctx) {
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 30;
+    const requestedLimit = Number(ctx.req.query('limit'));
+    const limit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : 30;
 
-    const rootUrl = 'http://paulgraham.com';
+    const rootUrl = 'https://paulgraham.com';
     const currentUrl = new URL('articles.html', rootUrl).href;
 
     const { data: response } = await got(currentUrl);
 
     const $ = load(response);
 
+    const seenLinks = new Set<string>();
     let items = $('font a')
-        .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .flatMap((item): DataItem[] => {
+            const $item = $(item);
+            const href = $item.attr('href');
+            if (!href) {
+                return [];
+            }
+            const link = new URL(href, rootUrl).href;
+            if (seenLinks.has(link)) {
+                return [];
+            }
+            seenLinks.add(link);
+            return [{ title: $item.text(), link }];
+        })
+        .slice(0, limit);
 
-            return {
-                title: item.text(),
-                link: new URL(item.prop('href'), rootUrl).href,
-            };
-        });
-
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
+    items = await pMap(
+        items,
+        (item) =>
+            cache.tryGet(item.link!, async () => {
                 const { data: detailResponse } = await got(item.link);
 
                 const content = load(detailResponse);
@@ -61,11 +71,13 @@ async function handler(ctx) {
 
                 item.title = content('title').text();
                 item.description = description.html();
-                item.pubDate = parseDate(description.contents().first().text(), 'MMMM YYYY');
+                const dateText = description.contents().first().text();
+                const fullDate = dateText.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}/);
+                item.pubDate = fullDate ? parseDate(`${fullDate[0]} GMT`) : undefined;
 
                 return item;
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
     const author = 'Paul Graham';
@@ -77,12 +89,11 @@ async function handler(ctx) {
         title: `${author} - ${title}`,
         link: currentUrl,
         description: title,
-        language: 'en',
+        language: 'en' as const satisfies Language,
         image: $(`img[alt="${title}"]`).prop('src'),
         icon,
         logo: icon,
         subtitle: title,
         author,
-        allowEmpty: true,
     };
 }

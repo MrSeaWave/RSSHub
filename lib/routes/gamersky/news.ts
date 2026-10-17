@@ -1,6 +1,8 @@
-import type { Route } from '@/types';
 import type { Context } from 'hono';
-import { getArticleList, parseArticleList, getArticle, mdTableBuilder } from './utils';
+
+import type { Route } from '@/types';
+
+import { getArticleList, getArticles, mdTableBuilder, parseArticleList } from './utils';
 
 const idNameMap = [
     {
@@ -82,7 +84,7 @@ async function handler(ctx: Context) {
 
     const response = await getArticleList(idName.nodeId);
     const list = parseArticleList(response);
-    const fullTextList = await Promise.all(list.map((item) => getArticle(item)));
+    const fullTextList = await getArticles(list);
     return {
         title: `${idName.name} - 游民星空`,
         link: 'https://www.gamersky.com/news',

@@ -1,6 +1,8 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
-import { getSimple, getDetails, getTorrents } from './util';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import { getDetails, getSimple, getTorrents } from './util';
 
 export const route: Route = {
     path: '/search/:keyword/:mode?',
@@ -10,17 +12,18 @@ export const route: Route = {
         mode: 'mode, `simple` to only show cover, `detail` to show all pages, `torrent` to include Magnet URI, need login, refer to [Route-specific Configurations](https://docs.rsshub.app/deploy/config#route-specific-configurations), default to `simple`',
     },
     features: {
+        requirePuppeteer: true,
         antiCrawler: true,
         supportBT: true,
+        nsfw: true,
     },
     radar: [
         {
-            source: ['nhentai.net/:key/:keyword'],
-            target: '/:key/:keyword',
+            source: ['nhentai.net/search/'],
         },
     ],
     name: 'Advanced Search',
-    maintainers: ['MegrezZhu', 'hoilc'],
+    maintainers: ['MegrezZhu', 'hoilc', 'pseudoyu'],
     handler,
 };
 
@@ -31,7 +34,7 @@ async function handler(ctx) {
 
     const simples = await getSimple(url);
 
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 5;
+    const limit = getRouteLimit(ctx, 5);
     let items = simples;
     if (mode === 'detail') {
         items = await getDetails(cache, simples, limit);

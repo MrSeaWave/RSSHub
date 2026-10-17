@@ -1,7 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map'; // cheerio@1.0.0
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
+import { evaluateScriptData } from '@/utils/evaluate-script';
 import got from '@/utils/got';
-import { load } from 'cheerio'; // cheerio@1.0.0
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
 
@@ -15,7 +18,7 @@ export const route: Route = {
     path: '/gs/:type?',
     categories: ['university'],
     example: '/shu/gs/zhxw',
-    parameters: { type: '分类，默认为学术公告' },
+    parameters: { type: '分类，默认为综合新闻' },
     features: {
         requireConfig: false,
         requirePuppeteer: false,
@@ -35,8 +38,8 @@ export const route: Route = {
     handler,
     url: 'gs.shu.edu.cn/',
     description: `| 综合新闻 | 培养管理 | 国际交流 |
-  | -------- | --------- | --------- |
-  | zhxw     | pygl      | gjjl      |`,
+| -------- | -------- | -------- |
+| zhxw     | pygl     | gjjl     |`,
 };
 
 async function handler(ctx) {
@@ -61,27 +64,28 @@ async function handler(ctx) {
         .map((el) => {
             const item = $(el); // 使用Cheerio包装每个<tr>元素
             const rawLink = item.find('a').attr('href'); // 获取链接
-            const title = item.find('a').text().trim(); // 获取标题
+            const title = item.find('a').text();
             const dateParts = item.find('td').eq(1).text().trim(); // 获取日期
 
             return {
                 title, // 获取标题
                 link: rawLink ? new URL(rawLink, rootUrl).href : rootUrl, // 生成完整链接
-                pubDate: timezone(parseDate(dateParts, 'YYYY/MM/DD HH:mm:ss'), +8), // 解析日期
+                pubDate: timezone(parseDate(dateParts, 'YYYY/MM/DD HH:mm:ss'), 8), // 解析日期
                 description: item.find('td').eq(2).text().trim(), // 提取访问次数或其他信息
             };
         });
 
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
+    const items = await pMap(
+        list,
+        async (item) => {
+            const details = await cache.tryGet(`shu:gs:v2:${item.link}`, async () => {
                 const url = new URL(item.link); // 创建 URL 对象以验证链接
                 // 确保链接是以正确的域名开头，并且不为空
                 if (url.hostname === 'gs1.shu.edu.cn') {
                     // 需校内访问
                     // Skip or handle differently for URLs with gs1.shu.edu.cn domain
                     item.description = 'gs1.shu.edu.cn, 无法直接获取';
-                    return item;
+                    return { description: item.description };
                 }
 
                 const detailResponse = await got({
@@ -90,11 +94,30 @@ async function handler(ctx) {
                 }); // 获取详情页内容
                 const content = load(detailResponse.data); // 使用cheerio解析内容
 
-                item.description = content('#vsb_content .v_news_content').html() || item.description;
+                if (url.hostname === 'www.kankanews.com') {
+                    const script = content('script')
+                        .toArray()
+                        .map((element) => content(element).html() || '')
+                        .find((text) => text.startsWith('window.__NUXT__='));
+                    if (script) {
+                        const data = await evaluateScriptData<{ data?: Array<{ newsDetail?: { video_info?: { play_url?: string; cover?: string } } }> }>(script, '__NUXT__');
+                        const video = data.data?.[0]?.newsDetail?.video_info;
+                        if (video?.play_url) {
+                            item.description = content('<video controls></video>')
+                                .attr('src', video.play_url)
+                                .attr('poster', video.cover || '')
+                                .toString();
+                        }
+                    }
+                } else {
+                    item.description = content('#vsb_content .v_news_content').html() || item.description;
+                }
 
-                return item; // 返回完整的item
-            })
-        )
+                return { description: item.description }; // 返回完整的item
+            });
+            return { ...item, ...details };
+        },
+        { concurrency: 3 }
     );
 
     return {

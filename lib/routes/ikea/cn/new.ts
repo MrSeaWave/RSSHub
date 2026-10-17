@@ -1,6 +1,7 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
-import { generateRequestHeaders, generateProductItem } from './utils';
+
+import { generateProductItem, generateRequestHeaders } from './utils';
 
 const request = ({ moreToken = '' }) =>
     got({
@@ -39,21 +40,8 @@ export const route: Route = {
 };
 
 async function handler() {
-    const allProductSummaries = [];
-
-    const loadMoreRequest = async ({ moreToken }) => {
-        const response = await request({ moreToken });
-        const { data } = response;
-        allProductSummaries.push(data.productSummaries);
-        if (data.moreToken) {
-            await loadMoreRequest({ moreToken: data.moreToken });
-        }
-        return;
-    };
-
-    await loadMoreRequest({});
-
-    const products = allProductSummaries.flat();
+    const { data } = await request({});
+    const products = data.productSummaries;
 
     return {
         title: 'IKEA 宜家 - 当季新品推荐',

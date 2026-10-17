@@ -1,8 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
 
-import ofetch from '@/utils/ofetch';
-import * as cheerio from 'cheerio';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
+
 import { baseUrl, getItem } from './utils';
 
 export const route: Route = {
@@ -16,7 +18,7 @@ export const route: Route = {
         },
     ],
     name: '在线读刊',
-    maintainers: ['TonyRL'],
+    maintainers: ['TonyRL', 'cscnk52'],
     handler,
 };
 
@@ -26,7 +28,7 @@ async function handler(ctx) {
     const link = `${baseUrl}/${magazine}/mulu.htm`;
     const yearResponse = await ofetch(link);
 
-    const $ = cheerio.load(yearResponse);
+    const $ = load(yearResponse);
 
     const yearList = $('.booktitle a')
         .toArray()
@@ -34,14 +36,14 @@ async function handler(ctx) {
             const $item = $(item);
             return {
                 title: $item.text(),
-                link: $item.attr('href')!,
+                link: new URL($item.attr('href')!, baseUrl).href,
             };
         });
 
     const issueResponse = await ofetch(yearList[0].link);
-    const $$ = cheerio.load(issueResponse);
+    const $$ = load(issueResponse);
 
-    const list = $$('.highlight span a')
+    const list = $$('.highlight a')
         .toArray()
         .map((item) => {
             const $item = $$(item);
@@ -53,7 +55,7 @@ async function handler(ctx) {
         .toReversed()
         .filter((item) => item.title);
 
-    const items = await Promise.all(list.map((item) => cache.tryGet(item.link, () => getItem(item))));
+    const items = await pMap(list, (item) => cache.tryGet(item.link, () => getItem(item)), { concurrency: 3 });
 
     return {
         title: $('head title').text(),

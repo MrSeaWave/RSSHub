@@ -1,9 +1,19 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
+
+function parsePublicationDate(value?: string) {
+    if (!value?.trim()) {
+        return;
+    }
+    const date = parseDate(value);
+    return Number.isNaN(date.getTime()) ? undefined : timezone(date, 8);
+}
 
 const baseUrl = 'https://today.hitwh.edu.cn';
 
@@ -22,59 +32,45 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['hitwh.edu.cn/1024/list.htm', 'hitwh.edu.cn/'],
+            source: ['today.hitwh.edu.cn/1024/list.htm', 'today.hitwh.edu.cn/'],
         },
     ],
     name: '今日工大 - 通知公告',
     maintainers: ['raptazure'],
     handler,
-    url: 'hitwh.edu.cn/1024/list.htm',
+    url: 'today.hitwh.edu.cn/1024/list.htm',
 };
 
 async function handler() {
-    const response = await got(`${baseUrl}/1024/list.htm`, {
-        https: {
-            rejectUnauthorized: false,
-        },
-    });
+    const response = await got(`${baseUrl}/1024/list.htm`);
     const $ = load(response.data);
     const type = (filename) => filename.split('.').pop();
     const links = $('.list_list_wrap #wp_news_w10002 ul > li')
-        .map((_, el) => ({
-            pubDate: timezone(parseDate($(el).find('.news-time2').text()), 8),
-            link: new URL($(el).find('a').attr('href'), baseUrl).toString(),
+        .toArray()
+        .map((el): DataItem & { link: string } => ({
+            pubDate: parsePublicationDate($(el).find('.news-time2').text()),
+            link: new URL($(el).find('a').attr('href')!, baseUrl).href,
             title: $(el).find('a').text(),
-        }))
-        .get();
+        }));
 
     return {
         title: '哈尔滨工业大学（威海）通知公告',
         link: `${baseUrl}/1024/list.htm`,
-        item: await Promise.all(
-            links.map((item) =>
-                cache.tryGet(item.link, async () => {
-                    if (type(item.link) === 'htm') {
-                        try {
-                            const { data } = await got(item.link, {
-                                https: {
-                                    rejectUnauthorized: false,
-                                },
-                            });
-                            const $ = load(data);
-                            item.description = $('div.wp_articlecontent').html() && $('div.wp_articlecontent').html().replaceAll('src="/', `src="${baseUrl}/`).replaceAll('href="/', `href="${baseUrl}/`).trim();
-                            return item;
-                        } catch {
-                            // intranet
-                            item.description = '请进行统一身份认证之后再访问';
-                            return item;
-                        }
-                    } else {
+        item: await pMap(
+            links,
+            async (item) => ({
+                ...item,
+                ...(await cache.tryGet(item.link, async () => {
+                    if (type(item.link) !== 'htm') {
                         // file to download
-                        item.description = '此链接为文件，点击以下载';
-                        return item;
+                        return { description: '此链接为文件，点击以下载' };
                     }
-                })
-            )
+                    const { data } = await got(item.link);
+                    const $ = load(data);
+                    return { description: $('div.wp_articlecontent').html() ?? undefined };
+                })),
+            }),
+            { concurrency: 3 }
         ),
     };
 }

@@ -1,6 +1,7 @@
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
-import { getRootUrl, appDetail, X_UA } from '../utils';
+
+import { appDetail, getLanguage, getRootUrl, X_UA } from '../utils';
 
 /*
 const sortMap = {
@@ -48,12 +49,11 @@ const makeSortParam = (isIntl: boolean, order: string) => {
             return `type=${order}`;
         }
         return 'type=helpful';
-    } else {
-        if (order === 'new' || order === 'hot') {
-            return `sort=${order}`;
-        }
-        return 'sort=hot';
     }
+    if (order === 'new' || order === 'hot') {
+        return `sort=${order}`;
+    }
+    return 'sort=hot';
 };
 
 const fetchMainlandItems = async (params) => {
@@ -121,6 +121,7 @@ export async function handler(ctx) {
         title: `TapTap 评价 ${appName}`,
         link: `${getRootUrl(isIntl)}/app/${id}/review?${makeSortParam(isIntl, order)}`,
         image: appImg,
+        language: getLanguage(lang),
         item: items,
     };
 }

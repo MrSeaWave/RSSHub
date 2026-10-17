@@ -1,8 +1,11 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import { host, acw_sc__v2, parseList, parseItems } from './utils';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import { acw_sc__v2, host, parseItems, parseList } from './utils';
 
 export const route: Route = {
     path: '/channel/:name',
@@ -32,24 +35,16 @@ async function handler(ctx) {
 
     const link = `${host}/channel/${name}`;
     const { data: pageResponse } = await got(link);
-    const { data: apiResponse } = await got(`${host}/gateway/articles`, {
-        searchParams: {
-            query: 'channel',
-            slug: name,
-            offset: 0,
-            size: ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 20,
-            mode: 'scrollLoad',
-        },
-    });
-
     const $ = load(pageResponse);
     const channelName = $('#leftNav > a.active').text();
 
-    const list = parseList(apiResponse.rows);
+    const limit = getRouteLimit(ctx, 20);
+    const rows = JSON.parse($('#__NEXT_DATA__').text()).props.pageProps.initialState.blogs.articles.rows;
+    const list = parseList(rows.slice(0, limit));
 
-    const acwScV2Cookie = await acw_sc__v2(list[0].link, cache.tryGet);
+    const acwScV2Cookie = await acw_sc__v2(list[0].link);
 
-    const items = await Promise.all(list.map((item) => parseItems(acwScV2Cookie, item, cache.tryGet)));
+    const items = await pMap(list, (item) => parseItems(acwScV2Cookie, item), { concurrency: 3 });
 
     return {
         title: `segmentfault - ${channelName}`,

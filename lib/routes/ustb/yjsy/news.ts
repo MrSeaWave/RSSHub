@@ -1,8 +1,10 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
 import iconv from 'iconv-lite';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 // import logger from '@/utils/logger';
 
 export const route: Route = {
@@ -20,15 +22,16 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['gs.ustb.edu.cn/:type'],
+            source: ['gs.ustb.edu.cn/', 'gs.ustb.edu.cn/index.php/cms/item-list-category-1049'],
+            target: '/yjsy/news/all',
         },
     ],
     name: '研究生院',
     maintainers: ['DA1Y1'],
     handler,
     description: `| 北京科技大学研究生院 | 土木与资源工程学院 | 能源与环境工程学院 | 冶金与生态工程学院 | 材料科学与工程学院 | 机械工程学院 | 自动化学院 | 计算机与通信工程学院 | 数理学院 | 化学与生物工程学院 | 经济管理学院 | 文法学院 | 马克思主义学院 | 外国语学院 | 国家材料服役安全科学中心 | 新金属材料国家重点实验室 | 工程技术研究院 | 钢铁共性技术协同创新中心 | 钢铁冶金新技术国家重点实验室 | 新材料技术研究院 | 科技史与文化遗产研究院 | 顺德研究生院 |
-  | -------------------- | ------------------ | ------------------ | ------------------ | ------------------ | ------------ | ---------- | -------------------- | -------- | ------------------ | ------------ | -------- | -------------- | ---------- | ------------------------ | ------------------------ | -------------- | ------------------------ | ---------------------------- | ---------------- | ---------------------- | ------------ |
-  | all                  | cres               | seee               | metall             | mse                | me           | saee       | scce                 | shuli    | huasheng           | sem          | wenfa    | marx           | sfs        | ncms                     | skl                      | iet            | cicst                    | slam                         | adma             | ihmm                   | sd           |`,
+| -------------------- | ------------------ | ------------------ | ------------------ | ------------------ | ------------ | ---------- | -------------------- | -------- | ------------------ | ------------ | -------- | -------------- | ---------- | ------------------------ | ------------------------ | -------------- | ------------------------ | ---------------------------- | ---------------- | ---------------------- | ------------ |
+| all                  | cres               | seee               | metall             | mse                | me           | saee       | scce                 | shuli    | huasheng           | sem          | wenfa    | marx           | sfs        | ncms                     | skl                      | iet            | cicst                    | slam                         | adma             | ihmm                   | sd           |`,
 };
 
 async function handler(ctx) {
@@ -410,75 +413,69 @@ async function handler(ctx) {
         },
     };
 
-    // 请求
     const url = struct[type].url;
     const response = await got({
         method: 'get',
-        responseType: 'buffer', // 转码
+        responseType: 'buffer',
         url,
     });
 
-    // 获取response
     const data = type === 'iet' ? iconv.decode(response.data, 'gb2312') : response.data;
     const $ = load(data);
     // logger.info("data:" + data);
 
-    // 获取响应中有用的部分
     const list = $(struct[type].selector.list);
     // logger.info("list:" + list);
 
-    // 处理返回
     return {
         title: struct[type].name,
         link: struct[type].link,
         description: '北京科技大学研究生院',
-        item:
-            list &&
-            list
-                .map((index, item) => {
-                    item = $(item);
-                    // logger.info("item:" + item);
+        item: list.toArray().map((item) => {
+            const $item = $(item);
+            // logger.info("item:" + item);
 
-                    // time
-                    let time = item.find($(struct[type].timeSelector.list)).text();
-                    let date;
-                    if (time !== '') {
-                        if (time.includes('[')) {
-                            time = time.slice(1, 11);
-                        }
-                        date = parseDate(time);
-                    }
-                    // logger.info("date:" + date);
+            // time
+            let time = $item.find($(struct[type].timeSelector.list)).text();
+            let date;
+            if (time !== '') {
+                if (time.includes('[')) {
+                    time = time.slice(1, 11);
+                }
+                date = timezone(parseDate(time), 8);
+            }
+            // logger.info("date:" + date);
 
-                    // link
-                    let link = item.find($(struct[type].linkSelector.list)).attr('href');
-                    if (link === undefined) {
-                        link = item.attr('href');
-                    }
-                    // logger.info("link:" + link);
+            // link
+            let link = $item.find($(struct[type].linkSelector.list)).attr('href');
+            if (link === undefined) {
+                link = $item.attr('href');
+            }
+            // logger.info("link:" + link);
 
-                    // title
-                    let title = item.find($(struct[type].titleSelector.list)).clone().children().remove().end().text();
-                    if (title === '') {
-                        title = item.find($(struct[type].titleSelector.list)).text();
-                    }
-                    // logger.info("title:" + title);
-                    // logger.info("=====");
+            // title
+            let title = $item
+                .find($(struct[type].titleSelector.list))
+                .contents()
+                .filter((_, node) => node.type === 'text')
+                .text();
+            if (title === '') {
+                title = $item.find($(struct[type].titleSelector.list)).text();
+            }
+            // logger.info("title:" + title);
+            // logger.info("=====");
 
-                    // return
-                    return date === undefined
-                        ? {
-                              title,
-                              description: title,
-                              link,
-                          }
-                        : {
-                              title,
-                              description: title,
-                              link,
-                              pubDate: date,
-                          };
-                })
-                .get(),
+            // return
+            return date === undefined
+                ? {
+                      title,
+                      link,
+                  }
+                : {
+                      title,
+                      link,
+                      pubDate: date,
+                  };
+        }),
     };
 }

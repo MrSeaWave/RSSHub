@@ -1,9 +1,10 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import queryString from 'query-string';
-import { parseDate } from '@/utils/parse-date';
 import sanitizeHtml from 'sanitize-html';
+
 import { parseToken } from '@/routes/xueqiu/cookies';
+import type { Route } from '@/types';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
     path: '/hots',
@@ -12,7 +13,7 @@ export const route: Route = {
     parameters: {},
     features: {
         requireConfig: false,
-        requirePuppeteer: false,
+        requirePuppeteer: true,
         antiCrawler: false,
         supportBT: false,
         supportPodcast: false,
@@ -44,7 +45,6 @@ async function handler() {
         }),
         headers: {
             Cookie: token,
-            Referer: 'https://xueqiu.com/',
         },
     });
     const data = res2.data;

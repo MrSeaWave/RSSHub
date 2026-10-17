@@ -1,9 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 const base = 'https://houqin.qdu.edu.cn/';
 
@@ -22,13 +24,13 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['houqin.qdu.edu.cn/tzgg.htm', 'houqin.qdu.edu.cn/'],
+            source: ['houqin.qdu.edu.cn/index/tzgg.htm', 'houqin.qdu.edu.cn/'],
         },
     ],
     name: '后勤管理处通知',
     maintainers: ['abc1763613206'],
     handler,
-    url: 'houqin.qdu.edu.cn/tzgg.htm',
+    url: 'houqin.qdu.edu.cn/index/tzgg.htm',
 };
 
 async function handler() {
@@ -38,16 +40,28 @@ async function handler() {
     });
 
     const $ = load(response.data);
-    const list = $('.n_newslist').children();
-    const items = await Promise.all(
-        list.map((i, item) => {
-            item = $(item);
-            const itemTitle = item.find('a').text();
-            let itemDate = timezone(parseDate(item.find('span').text()), 8);
-            const path = item.find('a').attr('href');
-            const itemUrl = base + path;
+    const list = $('.n_newslist')
+        .children()
+        .toArray()
+        .flatMap((item) => {
+            const href = $(item).find('a').attr('href');
+            if (!href) {
+                return [];
+            }
+            const link = new URL(href, `${base}index/tzgg.htm`);
+            if (!['http:', 'https:'].includes(link.protocol)) {
+                return [];
+            }
+            return { element: item, link: link.href };
+        });
+    const items = await pMap(
+        list,
+        (item) => {
+            const $item = $(item.element);
+            const itemTitle = $item.find('a').text();
+            let itemDate = timezone(parseDate($item.find('span').text()), 8);
+            const itemUrl = item.link;
             return cache.tryGet(itemUrl, async () => {
-                let description = '';
                 const result = await got(itemUrl);
                 const $ = load(result.data);
                 if (
@@ -61,14 +75,14 @@ async function handler() {
                             $('.article_body')
                                 .find('div > h4')
                                 .text()
-                                .match(/发布时间：(.*)编辑：/)[1]
+                                .match(/发布时间：(.*)编辑：/)![1]
                                 .trim(),
                             'YYYY年MM月DD日 HH:mm'
                         ),
                         8
                     );
                 }
-                description = $('.v_news_content').html().trim();
+                const description = $('.v_news_content').html()?.trim();
 
                 return {
                     title: itemTitle,
@@ -77,7 +91,8 @@ async function handler() {
                     description,
                 };
             });
-        })
+        },
+        { concurrency: 3 }
     );
 
     return {

@@ -1,11 +1,13 @@
-import { Route, ViewType } from '@/types';
+import { config } from '@/config';
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { DataItem, Route } from '@/types';
+import { ViewType } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import { config } from '@/config';
 
 export const route: Route = {
     path: '/search/:type?/:caty?/:period?/:order?/:rating?/:keyword?',
-    categories: ['picture', 'popular'],
+    categories: ['picture'],
     view: ViewType.Pictures,
     example: '/fantia/search/posts/all/daily',
     parameters: {
@@ -48,7 +50,7 @@ export const route: Route = {
             default: 'all',
         },
         period: {
-            description: 'Ranking period, see the table below, empty by default',
+            description: 'Ranking period, see the table below, empty by default. Rankings cannot be combined with a keyword or a custom search order.',
             options: [
                 { value: 'daily', label: 'デイリー' },
                 { value: 'weekly', label: 'ウィークリー' },
@@ -80,79 +82,112 @@ export const route: Route = {
         keyword: 'Keyword, empty by default',
     },
     features: {
-        requireConfig: false,
+        requireConfig: [
+            {
+                name: 'FANTIA_COOKIE',
+                optional: true,
+                description: 'The `cookie` after login can be obtained by viewing the request header in the console, If not filled in will cause some posts that require login to read to get exceptions',
+            },
+        ],
         requirePuppeteer: false,
         antiCrawler: false,
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
+        nsfw: true,
     },
     name: 'Search',
     maintainers: ['nczitzk'],
     handler,
     description: `Type
 
-  | クリエイター | 投稿  | 商品     | コミッション |
-  | ------------ | ----- | -------- | ------------ |
-  | fanclubs     | posts | products | commissions  |
+| クリエイター | 投稿  | 商品     | コミッション |
+| ------------ | ----- | -------- | ------------ |
+| fanclubs     | posts | products | commissions  |
 
-  Category
+Category
 
-  | 分类                   | 分类名     |
-  | ---------------------- | ---------- |
-  | イラスト               | illust     |
-  | 漫画                   | comic      |
-  | コスプレ               | cosplay    |
-  | YouTuber・配信者       | youtuber   |
-  | Vtuber                 | vtuber     |
-  | 音声作品・ASMR         | voice      |
-  | 声優・歌い手           | voiceactor |
-  | アイドル               | idol       |
-  | アニメ・映像・写真     | anime      |
-  | 3D                     | 3d         |
-  | ゲーム制作             | game       |
-  | 音楽                   | music      |
-  | 小説                   | novel      |
-  | ドール                 | doll       |
-  | アート・デザイン       | art        |
-  | プログラム             | program    |
-  | 創作・ハンドメイド     | handmade   |
-  | 歴史・評論・情報       | history    |
-  | 鉄道・旅行・ミリタリー | railroad   |
-  | ショップ               | shop       |
-  | その他                 | other      |
+| 分类                   | 分类名     |
+| ---------------------- | ---------- |
+| イラスト               | illust     |
+| 漫画                   | comic      |
+| コスプレ               | cosplay    |
+| YouTuber・配信者       | youtuber   |
+| Vtuber                 | vtuber     |
+| 音声作品・ASMR         | voice      |
+| 声優・歌い手           | voiceactor |
+| アイドル               | idol       |
+| アニメ・映像・写真     | anime      |
+| 3D                     | 3d         |
+| ゲーム制作             | game       |
+| 音楽                   | music      |
+| 小説                   | novel      |
+| ドール                 | doll       |
+| アート・デザイン       | art        |
+| プログラム             | program    |
+| 創作・ハンドメイド     | handmade   |
+| 歴史・評論・情報       | history    |
+| 鉄道・旅行・ミリタリー | railroad   |
+| ショップ               | shop       |
+| その他                 | other      |
 
-  Ranking period
+Ranking period
 
-  | デイリー | ウィークリー | マンスリー | 全期間 |
-  | -------- | ------------ | ---------- | ------ |
-  | daily    | weekly       | monthly    | all    |
+| デイリー | ウィークリー | マンスリー | 全期間 |
+| -------- | ------------ | ---------- | ------ |
+| daily    | weekly       | monthly    | all    |
 
-  Sorting
+Sorting
 
-  | 更新の新しい順 | 更新の古い順 | 投稿の新しい順 | 投稿の古い順 | お気に入り数順 |
-  | -------------- | ------------ | -------------- | ------------ | -------------- |
-  | updater        | update\_old  | newer          | create\_old  | popular        |
+| 更新の新しい順 | 更新の古い順 | 投稿の新しい順 | 投稿の古い順 | お気に入り数順 |
+| -------------- | ------------ | -------------- | ------------ | -------------- |
+| updater        | update\\_old  | newer          | create\\_old  | popular        |
 
-  Rating
+Rating
 
-  | すべて | 一般のみ | R18 のみ |
-  | ------ | -------- | -------- |
-  | all    | general  | adult    |`,
+| すべて | 一般のみ | R18 のみ |
+| ------ | -------- | -------- |
+| all    | general  | adult    |`,
 };
 
 async function handler(ctx) {
     const type = ctx.req.param('type') || 'posts';
+    if (!['fanclubs', 'posts', 'products', 'commissions'].includes(type)) {
+        throw new InvalidParameterError(`Unknown search type "${type}". Expected fanclubs, posts, products, or commissions.`);
+    }
     const caty = ctx.req.param('caty') || '';
     const order = ctx.req.param('order') || 'updater';
     const rating = ctx.req.param('rating') || 'all';
     const keyword = ctx.req.param('keyword') || '';
     const period = ctx.req.param('period') || '';
+    if (period && !['daily', 'weekly', 'monthly', 'all'].includes(period)) {
+        throw new InvalidParameterError(`Unknown ranking period "${period}". Expected daily, weekly, monthly, or all.`);
+    }
+    if (period && (keyword || order !== 'updater')) {
+        throw new InvalidParameterError('Fantia rankings do not support keyword searches or custom search orders. Leave period empty to search.');
+    }
+    if (period && type === 'fanclubs' && rating !== 'all') {
+        throw new InvalidParameterError('Fantia creator rankings do not support rating filters. Leave period empty to search by rating.');
+    }
 
     const rootUrl = 'https://fantia.jp';
-    const apiUrl = `${rootUrl}/api/v1/search/${type}?keyword=${keyword}&peroid=${period}&brand_type=0&category=${caty === 'all' ? '' : caty}&order=${order}${
-        rating === 'all' ? '' : rating === 'general' ? '&rating=general' : '&adult=1'
-    }&per_page=30`;
+    const searchParams = new URLSearchParams({ brand_type: '0', category: caty === 'all' ? '' : caty, per_page: '30' });
+    if (period) {
+        searchParams.set('period', period);
+        searchParams.set('kind', 'point');
+        if (type !== 'fanclubs') {
+            searchParams.set('rating_type', rating === 'general' ? 'general' : rating === 'all' ? 'all' : 'adult');
+        }
+    } else {
+        searchParams.set('keyword', keyword);
+        searchParams.set('order', order);
+    }
+    if (!period && rating === 'general') {
+        searchParams.set('rating', 'general');
+    } else if (!period && rating !== 'all') {
+        searchParams.set('adult', '1');
+    }
+    const apiUrl = `${rootUrl}/api/v1/${period ? 'ranking' : 'search'}/${type}?${searchParams}`;
     const response = await got({
         method: 'get',
         url: apiUrl,
@@ -161,14 +196,14 @@ async function handler(ctx) {
         },
     });
 
-    let items = {};
+    let items: DataItem[];
 
     switch (type) {
         case 'fanclubs':
             items = response.data.fanclubs.map((item) => ({
                 title: item.fanclub_name_with_creator_name,
                 link: `${rootUrl}/fanclubs/${item.id}`,
-                description: `${item.icon ? `<img src="${item.icon.main}">` : ''}"><p>${item.title}</p>`,
+                description: `${item.icon ? `<img src="${item.icon.main}">` : ''}<p>${item.title}</p>`,
             }));
             break;
 
@@ -187,23 +222,26 @@ async function handler(ctx) {
                 title: item.name,
                 link: `${rootUrl}/products/${item.id}`,
                 author: item.fanclub.fanclub_name_with_creator_name,
-                description: `${item.buyable_lowest_plan.description ? `<p>${item.buyable_lowest_plan.description}</p>` : ''}<img src="${item.thumb ? item.thumb.main : item.thumb_micro}">`,
+                description: `${item.buyable_lowest_plan?.description ? `<p>${item.buyable_lowest_plan.description}</p>` : ''}<img src="${item.thumb ? item.thumb.main : item.thumb_micro}">`,
             }));
             break;
 
         case 'commissions':
-            items = response.data.commissions.map((item) => ({
+            items = (period ? response.data.products : response.data.commissions).map((item) => ({
                 title: item.name,
                 link: `${rootUrl}/commissions/${item.id}`,
                 author: item.fanclub.fanclub_name_with_creator_name,
-                description: `${item.buyable_lowest_plan.description ? `<p>${item.buyable_lowest_plan.description}</p>` : ''}<img src="${item.thumb ? item.thumb.main : item.thumb_micro}">`,
+                description: `${item.buyable_lowest_plan?.description ? `<p>${item.buyable_lowest_plan.description}</p>` : ''}<img src="${item.thumb ? item.thumb.main : item.thumb_micro}">`,
             }));
             break;
+
+        default:
+            throw new Error(`Unknown type: ${type}`);
     }
 
     return {
         title: `Fantia - Search ${type}`,
-        link: apiUrl.replace('api/v1/search/', ''),
+        link: period ? `${rootUrl}/ranking?${new URLSearchParams({ ...Object.fromEntries(searchParams), content: type.slice(0, -1) })}` : apiUrl.replace('api/v1/search/', ''),
         item: items,
     };
 }

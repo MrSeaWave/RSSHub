@@ -1,8 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import { load } from 'cheerio';
 
 // Yep http is bad, but I had no choice :(
 const rootMeta = {
@@ -16,6 +18,15 @@ const categories = {
         url: 'index/tzgg.htm',
     },
 };
+
+async function fetchDetail(link: string): Promise<Pick<DataItem, 'author' | 'description'>> {
+    const response = await got({ method: 'get', url: link });
+    const $ = load(response.body);
+    return {
+        author: /作者：(\S*)\s{4}/.exec($('p', '.main_contit').text())?.[1] || undefined,
+        description: $('#vsb_content').html(),
+    };
+}
 
 export const route: Route = {
     path: '/jiaowu/:category?',
@@ -34,8 +45,8 @@ export const route: Route = {
     maintainers: ['shaokeyibb'],
     handler,
     description: `| 通知公告 |
-  | :------: |
-  |   tzgg   |`,
+| :------: |
+|   tzgg   |`,
 };
 
 async function handler(ctx) {
@@ -54,13 +65,15 @@ async function handler(ctx) {
     const data = $('.main_conRCb ul li')
         .slice(0, 16)
         .toArray()
-        .map((item) => {
-            item = $(item);
-            const pubDate = item.children('span').text();
-            const title = item.find('a em').text();
-            const link = item.children('a').attr('href').replaceAll('../', rootMeta.url);
+        .filter((item) => $(item).children('a').attr('href'))
+        .map((item): DataItem & { link: string } => {
+            const $item = $(item);
+            const rawDate = $item.children('span').text();
+            const pubDate = rawDate ? parseDate(rawDate, 'YYYY-MM-DD', true) : undefined;
+            const title = $item.find('a em').text();
+            const link = new URL($item.children('a').attr('href')!, rootMeta.url + category.url).href;
             return {
-                pubDate: parseDate(pubDate),
+                pubDate: pubDate && Number.isFinite(pubDate.getTime()) ? pubDate : undefined,
                 title,
                 link,
             };
@@ -70,23 +83,14 @@ async function handler(ctx) {
         title: `${category.title}-${rootMeta.title}`,
         link: rootMeta.url + category.url,
         description: `${category.title}-${rootMeta.title}`,
-        language: 'zh_CN',
-        item: await Promise.all(
-            data.map((item) =>
-                cache.tryGet(item.link, async () => {
-                    const $ = load(
-                        (
-                            await got({
-                                method: 'get',
-                                url: item.link,
-                            })
-                        ).body
-                    );
-                    item.author = /作者：(\S*)\s{4}/g.exec($('p', '.main_contit').text())[1];
-                    item.description = $('#vsb_content').html();
-                    return item;
-                })
-            )
+        language: 'zh-CN' as const satisfies Language,
+        item: await pMap(
+            data,
+            async (item) => {
+                const detail = await cache.tryGet(`xaufe:detail:v1:${item.link}`, () => fetchDetail(item.link));
+                return { ...item, author: detail.author, description: detail.description };
+            },
+            { concurrency: 3, stopOnError: false }
         ),
     };
 }

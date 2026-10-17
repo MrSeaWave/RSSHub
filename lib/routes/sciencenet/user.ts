@@ -1,10 +1,13 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import got from '@/utils/got';
 import { load } from 'cheerio';
 import iconv from 'iconv-lite';
-import timezone from '@/utils/timezone';
+import pMap from 'p-map';
+
+import NotFoundError from '@/errors/types/not-found';
+import type { DataItem, Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/user/:id',
@@ -31,7 +34,8 @@ export const route: Route = {
 
 async function handler(ctx) {
     const id = ctx.req.param('id');
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 50;
+    const requestedLimit = Number(ctx.req.query('limit'));
+    const limit = Number.isFinite(requestedLimit) && requestedLimit >= 1 ? Math.floor(requestedLimit) : 50;
 
     const rootUrl = 'https://blog.sciencenet.cn';
     const currentUrl = `${rootUrl}/u/${id}`;
@@ -54,19 +58,25 @@ async function handler(ctx) {
     let items = $('item')
         .slice(-limit)
         .toArray()
-        .reverse()
-        .map((item) => {
-            item = $(item);
+        .toReversed()
+        .map((item): DataItem => {
+            const $item = $(item);
 
             return {
-                title: item.find('title').text(),
-                link: item.find('guid').text(),
+                title: $item.find('title').text(),
+                link: $item.find('guid').text(),
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
+    if (!items.length) {
+        throw new NotFoundError(`No blog entries found for user ${id}.`);
+    }
+
+    items = await pMap(
+        items,
+        async (item) => ({
+            ...item,
+            ...(await cache.tryGet(`sciencenet:article:v2:${item.link}`, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,
@@ -75,13 +85,10 @@ async function handler(ctx) {
 
                 const content = load(iconv.decode(detailResponse.data, 'gbk'));
 
-                item.author = content('.xs2').text();
-                item.description = content('#blog_article').html();
-                item.pubDate = timezone(parseDate(content('.xg1').eq(5).text()), +8);
-
-                return item;
-            })
-        )
+                return { author: content('.xs2').text(), description: content('#blog_article').html(), pubDate: timezone(parseDate(content('.xg1').eq(5).text()), 8) };
+            })),
+        }),
+        { concurrency: 3 }
     );
 
     return {

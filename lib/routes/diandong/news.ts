@@ -1,8 +1,12 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
 
 const rootUrl = 'https://webapi.diandong.com';
 
@@ -19,7 +23,7 @@ const titleMap = {
 
 export const route: Route = {
     path: '/news/:cate?',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/diandong/news',
     parameters: { cate: '分类，见下表，默认为推荐' },
     features: {
@@ -32,8 +36,8 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['diandong.com/news'],
-            target: '/news/:cate',
+            source: ['diandong.com/news', 'diandong.com/news/:article'],
+            target: '/news',
         },
     ],
     name: '资讯',
@@ -42,27 +46,28 @@ export const route: Route = {
     url: 'diandong.com/news',
     description: `分类
 
-  | 推荐 | 新车 | 导购 | 试驾 | 用车 | 技术 | 政策 | 行业 |
-  | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
-  | 0    | 29   | 61   | 30   | 75   | 22   | 24   | 23   |`,
+| 推荐 | 新车 | 导购 | 试驾 | 用车 | 技术 | 政策 | 行业 |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| 0    | 29   | 61   | 30   | 75   | 22   | 24   | 23   |`,
 };
 
 async function handler(ctx) {
     const cate = ctx.req.param('cate') ?? 0;
-    const limit = ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 25;
+    const limit = getRouteLimit(ctx, 25);
     const url = `${rootUrl}/content/list?page=1&size=${limit}&source_id=12&content_type=news&content_ids=&category_id=${cate}`;
 
     const response = await got(url);
     const data = response.data.data.list;
-    const list = data.map((item) => ({
+    const list: Array<DataItem & { link: string; pubDate: Date }> = data.map((item) => ({
         title: item.title,
-        pubDate: parseDate(item.published),
+        pubDate: timezone(parseDate(item.published), 8),
         author: item.author,
         link: `https://www.diandong.com/news/${item.contentid}.html`,
     }));
 
-    const items = await Promise.all(
-        list.map((item) =>
+    const items = await pMap(
+        list,
+        (item) =>
             cache.tryGet(item.link, async () => {
                 const detailResponse = await got(item.link);
                 const $ = load(detailResponse.data);
@@ -70,8 +75,8 @@ async function handler(ctx) {
                 item.description = $('#gallery-selector').html();
 
                 return item;
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
     return {

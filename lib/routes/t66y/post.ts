@@ -1,11 +1,14 @@
-import { Route } from '@/types';
-import * as cheerio from 'cheerio';
-import got from '@/utils/got';
-import cache from '@/utils/cache';
+import type { CheerioAPI } from 'cheerio';
+import { load } from 'cheerio';
+import type { Context } from 'hono';
+
+import type { Route } from '@/types';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
+
 import { baseUrl, parseContent } from './utils';
 
-function parseItems(tid: string, $: cheerio.CheerioAPI) {
+function parseItems(tid: string, $: CheerioAPI) {
     return $('.tr1:nth-child(1)')
         .toArray()
         .map((item) => {
@@ -16,14 +19,9 @@ function parseItems(tid: string, $: cheerio.CheerioAPI) {
             const pid = footer.find('.tipad a[title]').attr('id')?.slice(2);
 
             return {
-                title: content?.split('<br>')[0],
+                title: $('head title').text(),
                 description: content,
-                author: $item
-                    .find('b')
-                    .contents()
-                    .filter((_, ele) => ele.type === 'text')
-                    .text()
-                    .trim(),
+                author: $item.find('b .s3').first().text() || $item.find('b').first().text(),
                 pubDate: parseDate(String(footer.find('span[data-timestamp]').data('timestamp')), 'X'),
                 link: `${baseUrl}/read.php?tid=${tid}${pid ? `&pid=${pid}` : ''}`,
             };
@@ -42,54 +40,28 @@ export const route: Route = {
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
+        nsfw: true,
     },
     name: '帖子跟踪',
     maintainers: ['cnzgray'],
     handler,
-    description: `:::tip
-  帖子 id 查找办法:
+    description: `::: tip
+帖子 id 查找办法:
 
-  打开想跟踪的帖子，比如：\`https://t66y.com/htm_data/20/1811/3286088.html\` 其中 \`3286088\` 就是帖子 id。
-  :::`,
+打开想跟踪的帖子，比如：\`https://t66y.com/htm_data/20/1811/3286088.html\` 其中 \`3286088\` 就是帖子 id。
+:::`,
 };
 
-async function handler(ctx) {
-    const tid = ctx.req.param('tid') as string;
-    const { data: response } = await got(`${baseUrl}/read.php?tid=${tid}`);
-    // 跟踪重定向
-    let $ = cheerio.load(response);
-    const redirect = $('a:last-child').attr('href');
-    if (!redirect) {
-        throw new Error('Cannot get the redirect link');
+async function handler(ctx: Context) {
+    const { tid } = ctx.req.param();
+    const response = await ofetch.raw(`${baseUrl}/read.php?tid=${tid}`, { responseType: 'text' });
+    if (!response._data) {
+        throw new Error('The requested thread returned no content.');
     }
+    const link = response.url;
+    const $ = load(response._data);
 
-    const { data: redirectedResponse, url: link } = await got(new URL(redirect, baseUrl).href);
-    $ = cheerio.load(redirectedResponse);
-
-    const firstPage = parseItems(tid, $);
-
-    const pageSize = $('.w70 input').eq(0).attr('value')?.split('/')[1];
-    let pageUrls: string[] = [];
-    if (pageSize) {
-        const length = Number.parseInt(pageSize);
-        pageUrls = Array.from({ length }, (_, i) => `${baseUrl}/read.php?tid=${tid}&page=${i + 1}`).slice(1);
-    }
-
-    // 请求帖子
-    const nextPages = pageSize
-        ? await Promise.all(
-              pageUrls.map((url) =>
-                  cache.tryGet(url, async () => {
-                      const { data: res } = await got(url);
-                      const $ = cheerio.load(res);
-
-                      return parseItems(tid, $);
-                  })
-              )
-          )
-        : [];
-
-    const items = [...firstPage, ...nextPages.flat()];
+    const items = parseItems(tid, $);
 
     return {
         title: $('head title').text(),

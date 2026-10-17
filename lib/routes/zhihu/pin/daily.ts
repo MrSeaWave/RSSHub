@@ -1,5 +1,6 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
+
 import { generateData } from './utils';
 
 export const route: Route = {
@@ -15,13 +16,7 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    radar: [
-        {
-            source: ['daily.zhihu.com/*'],
-            target: '/daily',
-        },
-    ],
-    name: '知乎想法 - 24 小时新闻汇总',
+    name: '想法 - 24 小时新闻汇总',
     maintainers: ['xyqfer'],
     handler,
     url: 'daily.zhihu.com/*',

@@ -1,7 +1,9 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/yjs',
@@ -31,7 +33,7 @@ async function handler() {
     const link = 'http://gs.ccnu.edu.cn/zsgz/ssyjs.htm';
     const response = await got(link);
     const $ = load(response.data);
-    const list = $('.main-zyrx li');
+    const list = $('.text-list li');
 
     return {
         title: '华中师范大学研究生院',
@@ -40,12 +42,12 @@ async function handler() {
         item:
             list &&
             list.toArray().map((item) => {
-                item = $(item);
-                const a = item.find('a');
+                const $item = $(item);
+                const a = $item.find('a');
                 return {
-                    title: a.attr('title'),
-                    link: new URL(a.attr('href'), link).href,
-                    pubDate: parseDate(item.find('small').text(), 'YYYY-MM-DD'),
+                    title: a.text(),
+                    link: new URL(a.attr('href')!, link).href,
+                    pubDate: timezone(parseDate($item.find('span.span').text(), 'YYYY-MM-DD'), 8),
                 };
             }),
     };

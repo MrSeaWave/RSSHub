@@ -1,13 +1,14 @@
-import { Route } from '@/types';
+import pMap from 'p-map';
 
-import ofetch from '@/utils/ofetch';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
-import { baseUrl, getItem, headers, parseList } from './utils';
+
+import { baseUrl, getItem, getList, parseList } from './utils';
 
 export const route: Route = {
     path: '/categories/:category',
     categories: ['multimedia'],
-    example: '/javtrailers/categories/50001755',
+    example: '/javtrailers/categories/hi-def',
     parameters: { category: 'Category name, can be found in the URL of the category page' },
     radar: [
         {
@@ -18,18 +19,27 @@ export const route: Route = {
     maintainers: ['TonyRL'],
     url: 'javtrailers.com/categories',
     handler,
+    features: {
+        nsfw: true,
+        requirePuppeteer: false,
+    },
 };
 
 async function handler(ctx) {
     const { category } = ctx.req.param();
 
-    const response = await ofetch(`${baseUrl}/api/categories/${category}?page=0`, {
-        headers,
-    });
+    const response = await getList(`${baseUrl}/categories/${category}`, 'category');
 
     const list = parseList(response.videos);
 
-    const items = await Promise.all(list.map((item) => cache.tryGet(item.link, () => getItem(item))));
+    const items = await pMap(
+        list,
+        async (item) => ({
+            ...(await cache.tryGet(item.link, () => getItem(item))),
+            ...item,
+        }),
+        { concurrency: 3 }
+    );
 
     return {
         title: `Watch ${response.category.name} Jav Online | Japanese Adult Video - JavTrailers.com`,

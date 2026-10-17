@@ -1,21 +1,33 @@
-import puppeteer from '@/utils/puppeteer';
+import logger from '@/utils/logger';
+import ofetch from '@/utils/ofetch';
+import playwright from '@/utils/playwright';
 
-const baseUrl = 'https://pincong.rocks';
+export const baseUrl = 'https://pincong.rocks';
 
-const puppeteerGet = (url, cache) =>
-    cache.tryGet(url, async () => {
-        const browser = await puppeteer();
-        const page = await browser.newPage();
-        await page.setRequestInterception(true);
-        page.on('request', (request) => {
-            request.resourceType() === 'document' ? request.continue() : request.abort();
+const playwrightGet = async (url: string) => {
+    const context = await playwright();
+    try {
+        const page = await context.newPage();
+        await page.route('**/*', (route) => {
+            const request = route.request();
+            request.resourceType() === 'document' ? route.continue() : route.abort();
         });
+        logger.http(`Requesting ${url}`);
         await page.goto(url, {
             waitUntil: 'domcontentloaded',
         });
-        const html = await page.evaluate(() => document.documentElement.innerHTML);
-        browser.close();
+        const html = await page.evaluate(() => document.documentElement.getHTML());
         return html;
-    });
+    } finally {
+        await context.close();
+    }
+};
 
-export { baseUrl, puppeteerGet };
+export const get = (url: string, cache) =>
+    cache.tryGet(url, async () => {
+        try {
+            return await ofetch<string>(url, { minVersion: 'TLSv1.3', retry: 0 });
+        } catch {
+            return playwrightGet(url);
+        }
+    });

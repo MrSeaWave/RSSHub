@@ -1,3 +1,4 @@
+import InvalidParameterError from '@/errors/types/invalid-parameter';
 import type { Route } from '@/types';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
@@ -5,12 +6,12 @@ import { parseDate } from '@/utils/parse-date';
 // type id => display name
 type Mapping = Record<string, string>;
 
-const JP: Mapping = {
+const JP = {
     '0': '全て',
     '1': 'イベント',
     '2': 'お知らせ',
     '3': 'メンテナンス',
-};
+} satisfies Mapping;
 
 // render into MD table
 const mkTable = (mapping: Mapping): string => {
@@ -34,15 +35,18 @@ const handler: Route['handler'] = async (ctx) => {
         case 'JP':
             return await ja(ctx);
         default:
-            throw [];
+            throw new InvalidParameterError('Unsupported server. Only JP is supported.');
     }
 };
 
 const ja: Route['handler'] = async (ctx) => {
     const { type = '0' } = ctx.req.param();
+    if (!Object.hasOwn(JP, type)) {
+        throw new InvalidParameterError('Unsupported news type. Use 0 (all), 1 (events), 2 (news), or 3 (maintenance).');
+    }
 
-    const data = await ofetch<{ data: { rows: { id: number; content: string; summary: string; publishTime: number }[] } }, 'json'>('https://api-web.bluearchive.jp/api/news/list', {
-        params: {
+    const data = await ofetch<{ data: { rows: Array<{ id: number; content: string; summary: string; publishTime: number }> } }, 'json'>('https://api-web.bluearchive.jp/api/news/list', {
+        query: {
             typeId: type,
             pageNum: 16,
             pageIndex: 1,
@@ -52,7 +56,7 @@ const ja: Route['handler'] = async (ctx) => {
     return {
         title: `ブルアカ - ${JP[type]}`,
         link: 'https://bluearchive.jp/news/newsJump',
-        language: 'ja-JP',
+        language: 'ja',
         image: 'https://webcnstatic.yostar.net/ba_cn_web/prod/web/favicon.png', // The CN website has a larger one
         icon: 'https://webcnstatic.yostar.net/ba_cn_web/prod/web/favicon.png',
         logo: 'https://webcnstatic.yostar.net/ba_cn_web/prod/web/favicon.png',

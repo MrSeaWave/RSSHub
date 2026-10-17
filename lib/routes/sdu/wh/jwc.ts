@@ -1,11 +1,14 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import data from '../data';
-import extractor from '../extractor';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
+
+import data from '../data';
+import extractor from '../extractor';
 
 export const route: Route = {
     path: '/wh/jwc/:column?',
@@ -24,8 +27,14 @@ export const route: Route = {
     maintainers: ['kxxt'],
     handler,
     description: `| 规章制度 | 专业建设 | 实践教学 | 支部风采 | 服务指南 | 教务要闻 | 工作通知 | 教务简报 | 常用下载 |
-  | -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- |
-  | gzzd     | zyjs     | sjjx     | zbfc     | fwzn     | jwyw     | gztz     | jwjb     | cyxz     |`,
+| -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- |
+| gzzd     | zyjs     | sjjx     | zbfc     | fwzn     | jwyw     | gztz     | jwjb     | cyxz     |`,
+};
+
+type ExtractedArticle = {
+    description?: string | null;
+    author?: string;
+    exactDate?: Date;
 };
 
 async function handler(ctx) {
@@ -34,19 +43,20 @@ async function handler(ctx) {
     const response = await got(baseUrl + data.wh.jwc.columns[column].url);
     const $ = load(response.data);
     const items = $('.articleul li');
-    const out = await Promise.all(
-        items.map(async (index, item) => {
-            item = $(item);
-            const anchor = item.find('a');
-            const dateElement = item.find('div:last-of-type');
+    const out = await pMap(
+        items.toArray(),
+        async (item, _index) => {
+            const $item = $(item);
+            const anchor = $item.find('a');
+            const dateElement = $item.find('div:last-of-type');
             const dateText = dateElement.text();
             dateElement.remove();
             const href = anchor.attr('href');
-            const link = href.startsWith('http') ? href : baseUrl + href;
-            const title = item.text();
-            const { description, author: exactAuthor, exactDate } = await cache.tryGet(link, () => extractor(link));
+            const link = href!.startsWith('http') ? href : baseUrl + href;
+            const title = $item.text();
+            const { description, author: exactAuthor, exactDate } = await cache.tryGet<ExtractedArticle>(link!, () => extractor(link));
             const author = exactAuthor ?? '教务处';
-            const pubDate = exactDate ?? timezone(parseDate(dateText.slice(1, -1), 'YYYY-MM-DD'), +8);
+            const pubDate = exactDate ?? timezone(parseDate(dateText.slice(1, -1), 'YYYY-MM-DD'), 8);
             return {
                 title,
                 link,
@@ -54,7 +64,8 @@ async function handler(ctx) {
                 pubDate,
                 author,
             };
-        })
+        },
+        { concurrency: 3 }
     );
 
     return {

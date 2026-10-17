@@ -1,6 +1,7 @@
-import { Route } from '@/types';
+import type { Language, Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+
 const FQDN = 'feedback.remnote.com';
 const apiGateway = 'https://gateway.hellonext.co';
 
@@ -43,7 +44,7 @@ async function handler() {
         title: item.title,
         description: item.description_html,
         link: `https://${FQDN}/changelog/${item.slug}`,
-        pubDate: parseDate(item.published_at.timestamp),
+        pubDate: item.published_at ? parseDate(item.published_at) : undefined,
     }));
 
     return {
@@ -52,6 +53,6 @@ async function handler() {
         link: `https://${FQDN}/changelog`,
         image: 'https://vault.hnxt.dev/uploads/organization_customization/favicon/3970/88153ff13b4b03492ddfee6e675228c1.png',
         item: items,
-        language: 'en-US',
+        language: 'en-us' as const satisfies Language,
     };
 }

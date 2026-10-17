@@ -1,3 +1,5 @@
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
 import got from '@/utils/got';
 
 const categoryMap = {
@@ -35,20 +37,26 @@ export const route: Route = {
     maintainers: ['sanmmm'],
     description: `分类
 
-  | 推荐 | 最热 |
-  | ---- | ---- |
-  | rec  | hot  |
+| 推荐 | 最热 |
+| ---- | ---- |
+| rec  | hot  |
 
-  目录类型
+目录类型
 
-  | 所有 | 绘画 | 视频 | 写作 | 游戏 | 音乐 | 播客 | 摄影 | 技术 | Vtuber | 舞蹈 | 体育 | 旅游 | 美食 | 时尚 | 数码 | 动画 | 其他 |
-  | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ------ | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
-  | 所有 | 绘画 | 视频 | 写作 | 游戏 | 音乐 | 播客 | 摄影 | 技术 | Vtuber | 舞蹈 | 体育 | 旅游 | 美食 | 时尚 | 数码 | 动画 | 其他 |`,
+| 所有 | 绘画 | 视频 | 写作 | 游戏 | 音乐 | 播客 | 摄影 | 技术 | Vtuber | 舞蹈 | 体育 | 旅游 | 美食 | 时尚 | 数码 | 动画 | 其他 |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ------ | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| 所有 | 绘画 | 视频 | 写作 | 游戏 | 音乐 | 播客 | 摄影 | 技术 | Vtuber | 舞蹈 | 体育 | 旅游 | 美食 | 时尚 | 数码 | 动画 | 其他 |`,
     handler,
 };
 
 async function handler(ctx) {
     const { type = 'rec', category = '所有' } = ctx.req.param();
+    if (!Object.hasOwn(typeToLabel, type)) {
+        throw new InvalidParameterError('Type must be rec or hot.');
+    }
+    if (!Object.hasOwn(categoryMap, category)) {
+        throw new InvalidParameterError(`Unknown creator category. Choose one of: ${Object.keys(categoryMap).join(', ')}.`);
+    }
     const baseUrl = 'https://afdian.com';
     const link = `${baseUrl}/api/creator/list`;
     const res = await got(link, {

@@ -1,16 +1,19 @@
-import { Route, ViewType } from '@/types';
+import { config } from '@/config';
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Data, Route } from '@/types';
+import { ViewType } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+
 import { defaultDomain, renderDescription } from './utils';
-import { config } from '@/config';
 
 export const route: Route = {
-    path: '/category/:caty',
-    categories: ['multimedia', 'popular'],
+    path: '/category/:caty/:img?',
+    categories: ['multimedia'],
     view: ViewType.Videos,
     example: '/pornhub/category/popular-with-women',
-    parameters: { caty: 'category, see [categories](https://www.pornhub.com/webmasters/categories)' },
+    parameters: { caty: 'category, see [categories](https://www.pornhub.com/webmasters/categories)', img: 'show images, set to `img=1` to enable' },
     features: {
         requireConfig: false,
         requirePuppeteer: false,
@@ -18,22 +21,27 @@ export const route: Route = {
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
+        nsfw: true,
     },
     name: 'Category',
     maintainers: ['nczitzk'],
     handler,
 };
 
-async function handler(ctx) {
-    const category = ctx.req.param('caty');
+async function handler(ctx): Promise<Data> {
+    const { caty: category, img } = ctx.req.param();
 
     const categories = await cache.tryGet('pornhub:categories', async () => {
         const { data } = await got(`${defaultDomain}/webmasters/categories`);
         return data.categories;
     });
 
-    const categoryId = isNaN(category) ? categories.find((item) => item.category === category)?.id : category;
-    const categoryName = isNaN(category) ? category : categories.find((item) => item.id === Number.parseInt(category)).category;
+    const matchedCategory = categories.find((item) => item.category === category || String(item.id) === category);
+    if (!matchedCategory) {
+        throw new InvalidParameterError('Unknown Pornhub category. Use a category name or ID from the categories endpoint.');
+    }
+    const categoryId = matchedCategory.id;
+    const categoryName = matchedCategory.category;
 
     const response = await cache.tryGet(
         `pornhub:category:${categoryName}`,
@@ -49,10 +57,12 @@ async function handler(ctx) {
         throw new Error(response.message);
     }
 
+    const showImages = img === 'img=1';
+
     const list = response.videos.map((item) => ({
         title: item.title,
         link: item.url,
-        description: renderDescription({ thumbs: item.thumbs }),
+        description: renderDescription({ thumbs: item.thumbs }, showImages),
         pubDate: parseDate(item.publish_date),
         category: [...new Set([...item.tags.map((t) => t.tag_name), ...item.categories.map((c) => c.category)])],
     }));
@@ -60,6 +70,7 @@ async function handler(ctx) {
     return {
         title: `Pornhub - ${categoryName}`,
         link: `${defaultDomain}/video?c=${categoryId}`,
+        language: 'en',
         item: list,
     };
 }

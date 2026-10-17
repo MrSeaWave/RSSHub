@@ -1,17 +1,17 @@
-import { Route } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
+import { load } from 'cheerio';
 
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
-import { art } from '@/utils/render';
-import path from 'node:path';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
+
+import { renderDescription } from './templates/description';
 
 export const handler = async (ctx) => {
     const { category } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 12;
+    const limit = getRouteLimit(ctx, 12);
 
     const rootUrl = 'https://www.cuilingmag.com';
     const currentUrl = new URL(category ? `category/${category}` : '', rootUrl).href;
@@ -20,20 +20,20 @@ export const handler = async (ctx) => {
 
     const $ = load(response);
 
-    const language = $('html').prop('lang');
+    const language = $('html').prop('lang') as Language;
 
     let items = $('div.new-list-div, div.item')
         .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
-            const title = item.find('h3.new-list-h3, h3.title-font').first().text().trim();
+            const title = $item.find('h3.new-list-h3, h3.title-font').text();
 
-            const src = item.find('img').first().prop('src');
+            const src = $item.find('img').first().prop('src');
             const image = src ? new URL(src, rootUrl).href : undefined;
 
-            const description = art(path.join(__dirname, 'templates/description.art'), {
+            const description = renderDescription({
                 images: image
                     ? [
                           {
@@ -47,8 +47,8 @@ export const handler = async (ctx) => {
             return {
                 title,
                 description,
-                link: new URL(item.find('a').first().prop('href'), rootUrl).href,
-                author: item.find('a.new-list-p, div.author').text().trim(),
+                link: new URL($item.find('a').first().prop('href')!, rootUrl).href,
+                author: $item.find('a.new-list-p, div.author').text().trim(),
                 image,
                 banner: image,
                 language,
@@ -60,19 +60,19 @@ export const handler = async (ctx) => {
 
     items = await Promise.all(
         items.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 const { data: detailResponse } = await got(item.link);
 
                 const $$ = load(detailResponse);
 
-                const title = `${$$('p.title-font').text().trim()} ${$$('p.subtitle-font').text().trim()}`;
+                const title = `${$$('p.title-font').text()} ${$$('p.subtitle-font').text()}`;
 
                 const src = $$('div.banner img').first().prop('src');
                 const banner = src ? new URL(src, rootUrl).href : undefined;
 
                 const description =
                     item.description +
-                    art(path.join(__dirname, 'templates/description.art'), {
+                    renderDescription({
                         images: banner
                             ? [
                                   {
@@ -81,12 +81,12 @@ export const handler = async (ctx) => {
                                   },
                               ]
                             : undefined,
-                        description: $$('div.article-content').html(),
+                        description: $$('div.article-content').html() ?? undefined,
                     });
 
                 item.title = title;
                 item.description = description;
-                item.pubDate = parseDate($$('p.time').first().text());
+                item.pubDate = timezone(parseDate($$('p.time').first().text()), 8);
                 item.category = [
                     ...new Set([
                         ...$$('p.sort a')
@@ -116,15 +116,14 @@ export const handler = async (ctx) => {
         )
     );
 
-    const title = $('title').text().trim();
-    const image = new URL($('div.nav-logo a img').prop('src'), rootUrl).href;
+    const title = $('title').text();
+    const image = new URL($('div.nav-logo a img').prop('src')!, rootUrl).href;
 
     return {
         title,
         description: $('meta[property="og:description"]').prop('content'),
         link: currentUrl,
         item: items,
-        allowEmpty: true,
         image,
         author: title.split(/-/).pop(),
         language,
@@ -135,25 +134,23 @@ export const route: Route = {
     path: '/:category?',
     name: '分类',
     url: 'cuilingmag.com',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     maintainers: ['nczitzk'],
     handler,
     example: '/cuilingmag',
     parameters: { category: '分类，默认为空，即全部，可在对应分类页 URL 中找到' },
-    description: `:::tip
-  若订阅 [#哲学·文明](https://www.cuilingmag.com/category/philosophy_civilization)，网址为 \`https://www.cuilingmag.com/category/philosophy_civilization\`。截取 \`https://www.cuilingmag.com/category\` 到末尾的部分 \`philosophy_civilization\` 作为参数填入，此时路由为 [\`/cuilingmag/philosophy_civilization\`](https://rsshub.app/cuilingmag/philosophy_civilization)。
-  :::
+    description: `::: tip
+若订阅 [#哲学・文明](https://www.cuilingmag.com/category/philosophy_civilization)，网址为 \`https://www.cuilingmag.com/category/philosophy_civilization\`。截取 \`https://www.cuilingmag.com/category\` 到末尾的部分 \`philosophy_civilization\` 作为参数填入，此时路由为 [\`/cuilingmag/philosophy_civilization\`](https://rsshub.app/cuilingmag/philosophy_civilization)。
+:::
 
-  | 分类                                                                       | ID                                                                                |
-  | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-  | [哲学 · 文明](https://www.cuilingmag.com/category/philosophy_civilization) | [philosophy_civilization](https://rsshub.app/cuilingmag/philosophy_civilization) |
-  | [艺术 · 科技](https://www.cuilingmag.com/category/art_science)             | [art_science](https://rsshub.app/cuilingmag/art_science)                         |
-  | [未来 · 生命](https://www.cuilingmag.com/category/future_life)             | [future_life](https://rsshub.app/cuilingmag/future_life)                         |
-  | [行星智慧](https://www.cuilingmag.com/category/planetary_wisdom)           | [planetary_wisdom](https://rsshub.app/cuilingmag/planetary_wisdom)               |
-  | [数字治理](https://www.cuilingmag.com/category/digital_governance)         | [digital_governance](https://rsshub.app/cuilingmag/digital_governance)           |
-  | [Noema精选](https://www.cuilingmag.com/category/selected_noema)            | [selected_noema](https://rsshub.app/cuilingmag/selected_noema)                   |
-  `,
-    categories: ['new-media'],
+| 分类                                                                      | ID                                                                                |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| [哲学・文明](https://www.cuilingmag.com/category/philosophy_civilization) | [philosophy\\_civilization](https://rsshub.app/cuilingmag/philosophy_civilization) |
+| [艺术・科技](https://www.cuilingmag.com/category/art_science)             | [art\\_science](https://rsshub.app/cuilingmag/art_science)                         |
+| [未来・生命](https://www.cuilingmag.com/category/future_life)             | [future\\_life](https://rsshub.app/cuilingmag/future_life)                         |
+| [行星智慧](https://www.cuilingmag.com/category/planetary_wisdom)          | [planetary\\_wisdom](https://rsshub.app/cuilingmag/planetary_wisdom)               |
+| [数字治理](https://www.cuilingmag.com/category/digital_governance)        | [digital\\_governance](https://rsshub.app/cuilingmag/digital_governance)           |
+| [Noema 精选](https://www.cuilingmag.com/category/selected_noema)          | [selected\\_noema](https://rsshub.app/cuilingmag/selected_noema)                   |`,
 
     features: {
         requireConfig: false,
@@ -167,11 +164,7 @@ export const route: Route = {
     radar: [
         {
             source: ['cuilingmag.com/category/:category'],
-            target: (params) => {
-                const category = params.category;
-
-                return `/cuilingmag${category ? `/${category}` : ''}`;
-            },
+            target: '/:category',
         },
         {
             title: '全部',

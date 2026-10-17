@@ -1,11 +1,14 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
     path: '/list/:category?',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/dedao/list/年度日更',
     parameters: { category: '分类名，默认为年度日更' },
     features: {
@@ -44,7 +47,15 @@ async function handler(ctx) {
         url: listUrl,
     });
 
-    const currentUrl = `${rootUrl}${listResponse.data.match(new RegExp('<span>' + category + String.raw`<\/span><a href="(.*)" rel="tag"><\/a>`))[1].split('"')[0]}`;
+    const $categories = load(listResponse.data);
+    const categoryPath = $categories('span')
+        .filter((_, element) => $categories(element).text() === category)
+        .next('a[rel="tag"]')
+        .attr('href');
+    if (!categoryPath) {
+        throw new InvalidParameterError(`Category "${category}" was not found. Choose a category listed on ${listUrl}.`);
+    }
+    const currentUrl = new URL(categoryPath, rootUrl).href;
 
     const currentResponse = await got({
         method: 'get',
@@ -55,19 +66,19 @@ async function handler(ctx) {
 
     let items = $('.pro-info p a')
         .toArray()
-        .slice(0, ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 10)
-        .map((item) => {
-            item = $(item);
+        .slice(0, getRouteLimit(ctx, 10))
+        .map((item): DataItem => {
+            const $item = $(item);
 
             return {
-                title: item.text(),
-                link: `${rootUrl}${item.attr('href')}`,
+                title: $item.text(),
+                link: `${rootUrl}${$item.attr('href')}`,
             };
         });
 
     items = await Promise.all(
         items.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,

@@ -1,4 +1,5 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
+
 import utils from './utils';
 
 export const route: Route = {
@@ -21,9 +22,10 @@ export const route: Route = {
 
 async function handler(ctx) {
     const keyword = ctx.req.param('keyword');
-    const url = `https://dribbble.com/search/shots/recent?q=${keyword}`;
+    const url = new URL('https://dribbble.com/search/shots/recent');
+    url.searchParams.set('q', keyword);
 
     const title = `Dribbble - keyword ${keyword}`;
 
-    return await utils.getData(url, title);
+    return await utils.getData(url.href, title);
 }

@@ -1,8 +1,10 @@
-import { Route } from '@/types';
-import { baseUrl, getBuildId, getData, getList } from './utils';
-import ofetch from '@/utils/ofetch';
-import cache from '@/utils/cache';
 import { config } from '@/config';
+import type { Data, Route } from '@/types';
+import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import { baseUrl, getBuildId, getData, getList } from './utils';
 
 interface Source {
     id: string;
@@ -14,115 +16,111 @@ interface Source {
     type: string;
 }
 
-const sourceFeedQuery = `
-query SourceFeed($source: ID!, $loggedIn: Boolean! = false, $first: Int, $after: String, $ranking: Ranking, $supportedTypes: [String!]) {
-  page: sourceFeed(
-    source: $source
-    first: $first
-    after: $after
-    ranking: $ranking
-    supportedTypes: $supportedTypes
-  ) {
-    ...FeedPostConnection
-  }
-}
-
-fragment FeedPostConnection on PostConnection {
-  pageInfo {
-    hasNextPage
-    endCursor
-  }
-  edges {
-    node {
-      ...FeedPost
-      pinnedAt
-      contentHtml
-      ...UserPost @include(if: $loggedIn)
+const sourceFeedQuery = /* GraphQL */ `
+    query SourceFeed($source: ID!, $loggedIn: Boolean! = false, $first: Int, $after: String, $ranking: Ranking, $supportedTypes: [String!]) {
+        page: sourceFeed(source: $source, first: $first, after: $after, ranking: $ranking, supportedTypes: $supportedTypes) {
+            ...FeedPostConnection
+        }
     }
-  }
-}
 
-fragment FeedPost on Post {
-  ...FeedPostInfo
-  sharedPost {
-    id
-    title
-    image
-    readTime
-    permalink
-    commentsPermalink
-    createdAt
-    type
-    tags
-    source {
-      id
-      handle
-      permalink
-      image
+    fragment FeedPostConnection on PostConnection {
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+        edges {
+            node {
+                ...FeedPost
+                pinnedAt
+                contentHtml
+                ...UserPost @include(if: $loggedIn)
+            }
+        }
     }
-    slug
-  }
-  trending
-  feedMeta
-  collectionSources {
-    handle
-    image
-  }
-  numCollectionSources
-  updatedAt
-  slug
-}
 
-fragment FeedPostInfo on Post {
-  id
-  title
-  image
-  readTime
-  permalink
-  commentsPermalink
-  createdAt
-  commented
-  bookmarked
-  views
-  numUpvotes
-  numComments
-  summary
-  bookmark {
-    remindAt
-  }
-  author {
-    id
-    name
-    image
-    username
-    permalink
-  }
-  type
-  tags
-  source {
-    id
-    handle
-    name
-    permalink
-    image
-    type
-  }
-  userState {
-    vote
-    flags {
-      feedbackDismiss
+    fragment FeedPost on Post {
+        ...FeedPostInfo
+        sharedPost {
+            id
+            title
+            summary
+            image
+            readTime
+            permalink
+            commentsPermalink
+            createdAt
+            type
+            tags
+            source {
+                id
+                handle
+                permalink
+                image
+            }
+            slug
+        }
+        trending
+        feedMeta
+        collectionSources {
+            handle
+            image
+        }
+        numCollectionSources
+        updatedAt
+        slug
     }
-  }
-  slug
-}
 
-fragment UserPost on Post {
-  read
-  upvoted
-  commented
-  bookmarked
-  downvoted
-}`;
+    fragment FeedPostInfo on Post {
+        id
+        title
+        image
+        readTime
+        permalink
+        commentsPermalink
+        createdAt
+        commented
+        bookmarked
+        views
+        numUpvotes
+        numComments
+        summary
+        bookmark {
+            remindAt
+        }
+        author {
+            id
+            name
+            image
+            username
+            permalink
+        }
+        type
+        tags
+        source {
+            id
+            handle
+            name
+            permalink
+            image
+            type
+        }
+        userState {
+            vote
+            flags {
+                feedbackDismiss
+            }
+        }
+        slug
+    }
+
+    fragment UserPost on Post {
+        read
+        upvoted
+        commented
+        bookmarked
+        downvoted
+    }
+`;
 
 export const route: Route = {
     path: '/source/:sourceId',
@@ -132,7 +130,12 @@ export const route: Route = {
     },
     radar: [
         {
+            source: ['daily.dev/sources/:sourceId'],
+            target: '/source/:sourceId',
+        },
+        {
             source: ['app.daily.dev/sources/:sourceId'],
+            target: '/source/:sourceId',
         },
     ],
     name: 'Source Posts',
@@ -141,20 +144,21 @@ export const route: Route = {
     url: 'app.daily.dev',
 };
 
-async function handler(ctx) {
+async function handler(ctx): Promise<Data> {
     const sourceId = ctx.req.param('sourceId');
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 10;
-    const link = `${baseUrl}/sources/${sourceId}`;
+    const requestedLimit = getRouteLimit(ctx, 10);
+    const limit = ctx.req.query('sorted') === 'false' ? requestedLimit : Math.max(10, requestedLimit);
 
+    const link = `${baseUrl}/sources/${sourceId}`;
     const buildId = await getBuildId();
 
-    const userData = (await cache.tryGet(`daily:source:${sourceId}`, async () => {
-        const response = await ofetch(`${baseUrl}/_next/data/${buildId}/en/sources/${sourceId}.json`);
+    const userData = await cache.tryGet(`daily:source:${sourceId}`, async () => {
+        const response = await ofetch<{ pageProps: { source: Source } }>(`${baseUrl}/_next/data/${buildId}/sources/${sourceId}.json`);
         return response.pageProps.source;
-    })) as Source;
+    });
 
     const items = await cache.tryGet(
-        `daily:source:${sourceId}:posts`,
+        `daily:source:${sourceId}:posts:${limit}`,
         async () => {
             const edges = await getData({
                 query: sourceFeedQuery,

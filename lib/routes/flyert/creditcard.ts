@@ -1,12 +1,14 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import util from './utils';
 import iconv from 'iconv-lite';
 
+import type { Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+
+import util from './utils';
+
 const gbk2utf8 = (s) => iconv.decode(s, 'gbk');
-const host = 'https://www.flyert.com';
+const host = 'https://www.flyert.com.cn';
 
 export const route: Route = {
     path: '/creditcard/:bank',
@@ -21,42 +23,45 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    radar: [
-        {
-            source: ['flyert.com/'],
-        },
-    ],
+    radar: ['flyert.com.cn', 'www.flyert.com.cn'].flatMap((domain) =>
+        ['creditcard', 'pufa', 'zhaoshang', 'zhongxin', 'jiaotong', 'zhonghang', 'gongshang', 'guangfa', 'nongye', 'jianshe', 'huifeng', 'mingsheng', 'xingye', 'huaqi', 'shanghai', 'wuka', '137', '145', 'intcreditcard'].map(
+            (bank) => ({
+                source: [`${domain}/forum-${bank}-1.html`],
+                target: `/creditcard/${bank}`,
+            })
+        )
+    ),
     name: '信用卡',
     maintainers: ['nicolaszf'],
     handler,
-    url: 'flyert.com/',
+    url: 'www.flyert.com.cn/',
     description: `| 信用卡模块 | bank          |
-  | ---------- | ------------- |
-  | 国内信用卡 | creditcard    |
-  | 浦发银行   | pufa          |
-  | 招商银行   | zhaoshang     |
-  | 中信银行   | zhongxin      |
-  | 交通银行   | jiaotong      |
-  | 中国银行   | zhonghang     |
-  | 工商银行   | gongshang     |
-  | 广发银行   | guangfa       |
-  | 农业银行   | nongye        |
-  | 建设银行   | jianshe       |
-  | 汇丰银行   | huifeng       |
-  | 民生银行   | mingsheng     |
-  | 兴业银行   | xingye        |
-  | 花旗银行   | huaqi         |
-  | 上海银行   | shanghai      |
-  | 无卡支付   | wuka          |
-  | 投资理财   | 137           |
-  | 网站权益汇 | 145           |
-  | 境外信用卡 | intcreditcard |`,
+| ---------- | ------------- |
+| 国内信用卡 | creditcard    |
+| 浦发银行   | pufa          |
+| 招商银行   | zhaoshang     |
+| 中信银行   | zhongxin      |
+| 交通银行   | jiaotong      |
+| 中国银行   | zhonghang     |
+| 工商银行   | gongshang     |
+| 广发银行   | guangfa       |
+| 农业银行   | nongye        |
+| 建设银行   | jianshe       |
+| 汇丰银行   | huifeng       |
+| 民生银行   | mingsheng     |
+| 兴业银行   | xingye        |
+| 花旗银行   | huaqi         |
+| 上海银行   | shanghai      |
+| 无卡支付   | wuka          |
+| 投资理财   | 137           |
+| 网站权益汇 | 145           |
+| 境外信用卡 | intcreditcard |`,
 };
 
 async function handler(ctx) {
     const bank = ctx.req.param('bank');
     const target = `${host}/forum-${bank}-1.html`;
-    let bankname = '';
+    let bankname: string;
 
     switch (bank) {
         case 'creditcard':
@@ -115,6 +120,9 @@ async function handler(ctx) {
             break;
         case 'intcreditcard':
             bankname = '境外信用卡';
+            break;
+        default:
+            throw new Error(`Unknown bank: ${bank}`);
     }
 
     const response = await got.get(target, {
@@ -123,13 +131,13 @@ async function handler(ctx) {
 
     const $ = load(gbk2utf8(response.data));
 
-    const list = $("[id*='normalthread']").get();
+    const list = $("[id*='normalthread']").toArray();
 
-    const result = await util.ProcessFeed(list, cache);
+    const result = await util.processFeed(list, cache);
 
     return {
         title: `飞客茶馆信用卡 - ${bankname}`,
-        link: 'https://www.flyert.com/',
+        link: 'https://www.flyert.com.cn/',
         description: `飞客茶馆信用卡 - ${bankname}`,
         item: result,
     };

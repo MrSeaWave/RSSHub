@@ -1,5 +1,6 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
+
 import { generateData } from './utils';
 
 export const route: Route = {
@@ -15,15 +16,9 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    radar: [
-        {
-            source: ['www.zhihu.com/zhihu/bookstore/newest'],
-        },
-    ],
-    name: '知乎想法热榜',
+    name: '想法热榜',
     maintainers: ['xyqfer'],
     handler,
-    url: 'www.zhihu.com/zhihu/bookstore/newest',
 };
 
 async function handler() {

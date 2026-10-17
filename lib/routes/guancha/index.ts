@@ -1,9 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
 import { parseDate, parseRelativeDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 const config = {
     review: {
@@ -58,30 +60,35 @@ export const route: Route = {
     handler,
     url: 'guancha.cn/',
     description: `| 全部 | 评论 & 研究 | 要闻  | 风闻    | 热点新闻 | 滚动新闻 |
-  | ---- | ----------- | ----- | ------- | -------- | -------- |
-  | all  | review      | story | fengwen | redian   | gundong  |
+| ---- | ----------- | ----- | ------- | -------- | -------- |
+| all  | review      | story | fengwen | redian   | gundong  |
 
-  home = 评论 & 研究 + 要闻 + 风闻
+home = 评论 & 研究 + 要闻 + 风闻
 
-  others = 热点新闻 + 滚动新闻
+others = 热点新闻 + 滚动新闻
 
-  :::tip
-  观察者网首页左中右的三个 column 分别对应 **评论 & 研究**、**要闻**、**风闻** 三个部分。
-  :::`,
+::: tip
+观察者网首页左中右的三个 column 分别对应 **评论 & 研究**、**要闻**、**风闻** 三个部分。
+:::`,
 };
 
 async function handler(ctx) {
     const total = 10;
     const category = ctx.req.param('category') ?? 'all';
+    if (!Object.hasOwn(config, category)) {
+        throw new InvalidParameterError('Invalid category. Use all, review, story, fengwen, redian, gundong, home, or others.');
+    }
     const rootUrl = 'https://www.guancha.cn';
 
-    let newsList = [],
-        redianList = [],
-        gundongList = [];
+    type ListItem = DataItem & { link: string };
+
+    let newsList: ListItem[] = [],
+        redianList: ListItem[] = [],
+        gundongList: ListItem[] = [];
 
     // 'review', 'story' and 'fengwen' come from homepage.
 
-    if (category === 'review' || category === 'story' || category === 'fengwen' || category === 'all' || category === 'home') {
+    if (['review', 'story', 'fengwen', 'all', 'home'].includes(category)) {
         const response = await got({
             method: 'get',
             url: rootUrl,
@@ -98,13 +105,13 @@ async function handler(ctx) {
 
                 .filter((item) => $(item).attr('href') !== 'https://user.guancha.cn')
                 .map((item) => {
-                    item = $(item);
+                    const $item = $(item);
 
-                    const link = item.attr('href');
+                    const link = $item.attr('href');
 
                     return {
-                        title: item.text(),
-                        link: `${link.indexOf('http') === 0 ? '' : rootUrl}${link.replace(/\.shtml/, '_s.shtml')}`,
+                        title: $item.text(),
+                        link: new URL(link!, rootUrl).href,
                     };
                 });
 
@@ -116,7 +123,7 @@ async function handler(ctx) {
 
     // 'redian' and 'gundong' come from api.
 
-    if (category === 'redian' || category === 'all' || category === 'others') {
+    if (['redian', 'all', 'others'].includes(category)) {
         const response = await got({
             method: 'get',
             url: `${rootUrl}/api/redian.htm`,
@@ -124,29 +131,28 @@ async function handler(ctx) {
 
         redianList = response.data.items
             .map((item) => ({
-                title: item.TITLE,
-                link: `${rootUrl}${item.HTTP_URL.replace(/\.shtml/, '_s.shtml')}`,
+                title: item.title,
+                link: new URL(item.httpUrl, rootUrl).href,
             }))
             .slice(0, category === 'all' ? total / 3 : total);
     }
 
-    if (category === 'gundong' || category === 'all' || category === 'others') {
-        const response = await got({
-            method: 'get',
-            url: `${rootUrl}/api/gundong.htm`,
-        });
-
-        gundongList = response.data.items
-            .map((item) => ({
-                title: item.TITLE,
-                link: `${rootUrl}${item.HTTP_URL.replace(/\.shtml/, '_s.shtml')}`,
+    if (['gundong', 'all', 'others'].includes(category)) {
+        const response = await got(`${rootUrl}/mainnews-gd/`);
+        const $ = load(response.data);
+        gundongList = $('h4.module-title a')
+            .toArray()
+            .map((element) => ({
+                title: $(element).text(),
+                link: new URL($(element).attr('href')!, rootUrl).href,
             }))
             .slice(0, category === 'all' ? total / 3 : total);
     }
 
+    const list = [...newsList, ...redianList, ...gundongList].filter((item, index, items) => items.findIndex((first) => first.link === item.link) === index);
     const items = await Promise.all(
-        [...newsList, ...redianList, ...gundongList].map((item) =>
-            cache.tryGet(item.link, async () => {
+        list.map(async (item) => {
+            const article = await cache.tryGet(`guancha:home:article:${item.link}`, async () => {
                 let detailResponse = await got({
                     method: 'get',
                     url: item.link,
@@ -159,26 +165,30 @@ async function handler(ctx) {
                 const jumpMatch = detailResponse.data.match(/user.guancha.cn\/main\/content\?id=(.*)";/);
 
                 if (jumpMatch !== null) {
-                    item.link = `https://user.guancha.cn/main/content?id=${jumpMatch[1]}&page=0`;
+                    const link = `https://user.guancha.cn/main/content?id=${jumpMatch[1]}&page=0`;
                     detailResponse = await got({
                         method: 'get',
-                        url: item.link,
+                        url: link,
                     });
                 }
 
                 const content = load(detailResponse.data);
 
-                const dateMatch = detailResponse.data.match(/"pubDate": "(.*)"/);
-                item.pubDate =
+                const dateMatch = detailResponse.data.match(/"pubDate"\s*:\s*"([^"]+)"/);
+                const relativeTime = content('.time1').text();
+                const pubDate =
                     dateMatch === null
-                        ? parseRelativeDate(content('.time1').text()) // PubDates of posts in 'fengwen' are in an informal format.
-                        : timezone(parseDate(dateMatch[1]), +8);
+                        ? relativeTime
+                            ? parseRelativeDate(relativeTime) // PubDates of posts in 'fengwen' are in an informal format.
+                            : undefined
+                        : timezone(parseDate(dateMatch[1]), 8);
 
-                item.description = content('.all-txt').html() || content('.article-txt-content').html();
-                item.author = content('.author-intro p a').text() || content('.article-content div div h4 a').text() || content('.editor-intro p a').text() || content('.left-main > div.time.fix > span').eq(2).text();
-                return item;
-            })
-        )
+                const description = content('.all-txt').html() || content('.article-txt-content').html();
+                const author = content('.author-intro p a').text() || content('.article-content div div h4 a').text() || content('.editor-intro p a').text() || content('.left-main > div.time.fix > span').eq(2).text();
+                return { description, pubDate, author, link: jumpMatch ? `https://user.guancha.cn/main/content?id=${jumpMatch[1]}&page=0` : item.link };
+            });
+            return { ...item, ...article };
+        })
     );
 
     return {

@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import unifyProxy from '@/utils/proxy/unify-proxy';
 
-const emptyProxyObj = {
+import type { Config } from '@/config';
+import unifyProxy, { unifyProxies } from '@/utils/proxy/unify-proxy';
+
+const emptyProxyObj: Config['proxy'] = {
     protocol: undefined,
     host: undefined,
     port: undefined,
     auth: undefined,
     url_regex: '.*',
+    strategy: 'all',
 };
 
 const effectiveExpect = ({ proxyUri, proxyObj }, expectUri, expectObj) => {
@@ -33,6 +36,10 @@ describe('unify-proxy', () => {
     });
     it('proxy-obj invalid protocol', () => {
         nullExpect(unifyProxy('', { ...emptyProxyObj, protocol: 'ftp', host: 'rsshub.proxy', port: '2333' }));
+    });
+    it('proxy-uri socks4 unsupported', () => {
+        nullExpect(unifyProxy('socks4://rsshub.proxy:2333', emptyProxyObj));
+        nullExpect(unifyProxy('socks4a://rsshub.proxy:2333', emptyProxyObj));
     });
 
     const httpNoPortUri = 'http://rsshub.proxy';
@@ -137,5 +144,11 @@ describe('unify-proxy', () => {
 
     it('proxy-uri user@pass override proxy-obj auth', () => {
         effectiveExpect(unifyProxy(httpsAuthUri, httpsAuthObj), httpsAuthUri, httpsObj);
+    });
+
+    it('unifyProxies filters invalid proxy uris', () => {
+        const results = unifyProxies(['http://rsshub.proxy:2333', 'http://inv lid.test'], emptyProxyObj);
+        expect(results).toHaveLength(1);
+        expect(results[0].proxyUri).toBe('http://rsshub.proxy:2333');
     });
 });

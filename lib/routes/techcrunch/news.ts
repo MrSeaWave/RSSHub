@@ -1,11 +1,10 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import { parseDate } from '@/utils/parse-date';
-import { art } from '@/utils/render';
-import path from 'node:path';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
+import { parseDateInTimezone } from '@/utils/parse-date-in-timezone';
+
+import { renderDescription } from './templates/description';
 
 const host = 'https://techcrunch.com';
 export const route: Route = {
@@ -27,7 +26,7 @@ export const route: Route = {
         },
     ],
     name: 'News',
-    maintainers: ['EthanWng97'],
+    maintainers: ['IvanWng97'],
     handler,
     url: 'techcrunch.com/',
 };
@@ -36,15 +35,20 @@ async function handler() {
     const { data } = await got(`${host}/wp-json/wp/v2/posts`);
     const items = data.map((item) => {
         const head = item.yoast_head_json;
+        const article = head.schema?.['@graph']?.find((node) => node['@type'] === 'NewsArticle');
+        const date = item.date_gmt || head.article_published_time;
         const $ = load(item.content.rendered, null, false);
+        $('.wp-block-techcrunch-inline-cta').remove();
         return {
             title: item.title.rendered,
-            description: art(path.join(__dirname, 'templates/description.art'), {
+            description: renderDescription({
                 head,
                 rendered: $.html(),
             }),
             link: item.link,
-            pubDate: parseDate(item.date_gmt),
+            pubDate: date ? parseDateInTimezone(date, 0) : undefined,
+            author: head.author,
+            category: [...new Set<string>([...(article?.articleSection ?? []), ...(article?.keywords ?? [])])].map((category) => $('<span>').html(category).text()),
         };
     });
 

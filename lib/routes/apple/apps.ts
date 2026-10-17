@@ -1,7 +1,8 @@
-import { Route, ViewType } from '@/types';
-import got from '@/utils/got';
-import { load } from 'cheerio';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 const platformIds = {
     osx: 'macOS',
@@ -17,7 +18,7 @@ const platforms = {
 
 export const route: Route = {
     path: '/apps/update/:country/:id/:platform?',
-    categories: ['program-update', 'popular'],
+    categories: ['program-update'],
     view: ViewType.Notifications,
     example: '/apple/apps/update/us/id408709785',
     parameters: {
@@ -62,10 +63,9 @@ export const route: Route = {
     name: 'App Update',
     maintainers: ['EkkoG', 'nczitzk'],
     handler,
-    description: `
-  :::tip
-  For example, the URL of [GarageBand](https://apps.apple.com/us/app/messages/id408709785) in the App Store is \`https://apps.apple.com/us/app/messages/id408709785\`. In this case, the \`App Store Country\` parameter for the route is \`us\`, and the \`App id\` parameter is \`id1146560473\`. So the route should be [\`/apple/apps/update/us/id408709785\`](https://rsshub.app/apple/apps/update/us/id408709785).
-  :::`,
+    description: `::: tip
+For example, the URL of [GarageBand](https://apps.apple.com/us/app/garageband/id408709785) in the App Store is \`https://apps.apple.com/us/app/garageband/id408709785\`. In this case, the \`App Store Country\` parameter for the route is \`us\`, and the \`App id\` parameter is \`id408709785\`. So the route should be [\`/apple/apps/update/us/id408709785\`](https://rsshub.app/apple/apps/update/us/id408709785).
+:::`,
 };
 
 async function handler(ctx) {
@@ -80,25 +80,44 @@ async function handler(ctx) {
     }
     platform = undefined;
 
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 100;
+    const limit = getRouteLimit(ctx, 100);
 
     const rootUrl = 'https://apps.apple.com';
     const currentUrl = new URL(`${country}/app/${id}`, rootUrl).href;
 
-    const { data: response } = await got(currentUrl);
+    const response = await ofetch(`https://apps.apple.com/api/apps/v1/catalog/${country}/apps/${id.replace('id', '')}`, {
+        headers: {
+            authorization: 'Bearer',
+            origin: 'https://apps.apple.com',
+        },
+        query: {
+            platform: 'iphone',
+            additionalPlatforms: 'appletv,ipad,iphone,mac,realityDevice,watch',
+            extend: 'accessibility,accessibilityDetails,ageRating,backgroundAssetsInfo,backgroundAssetsInfoWithOptional,customArtwork,customDeepLink,customIconArtwork,customPromotionalText,customScreenshotsByType,customVideoPreviewsByType,description,expectedReleaseDateDisplayFormat,fileSizeByDevice,gameDisplayName,iconArtwork,installSizeByDeviceInBytes,macRequiredCapabilities,medicalDeviceInfo,messagesScreenshots,miniGamesDeepLink,minimumOSVersion,privacy,privacyDetails,privacyPolicyUrl,remoteControllerRequirement,requirementsByDeviceFamily,supportURLForLanguage,supportedGameCenterFeatures,supportsFunCamera,supportsSharePlay,versionHistory,websiteUrl',
+            'extend[apps]': 'distributionKind,isVerifiedForAppleSiliconMac',
+            'extend[app-events]': 'description,productArtwork,productVideo',
+            include: 'alternate-apps,app-bundles,customers-also-bought-apps,developer,developer-other-apps,merchandised-in-apps,related-editorial-items,reviews',
+            'include[apps]': 'app-events',
+            views: 'top-in-app-purchasables',
+            'availableIn[app-events]': 'future',
+            'sparseLimit[apps:customers-also-bought-apps]': 40,
+            'sparseLimit[apps:developer-other-apps]': 40,
+            'sparseLimit[apps:related-editorial-items]': 40,
+            'limit[reviews]': 8,
+            l: 'en-US',
+        },
+    });
 
-    const $ = load(response);
-
-    const appData = JSON.parse(Object.values(JSON.parse($('script#shoebox-media-api-cache-apps').text()))[0]);
-    const attributes = appData.d[0].attributes;
+    const attributes = response.data[0].attributes;
 
     const appName = attributes.name;
     const artistName = attributes.artistName;
     const platformAttributes = attributes.platformAttributes;
 
-    let items = [];
-    let title = '';
+    let items: any[] = [];
+    let title: string;
     let description = '';
+    let image = '';
 
     if (platformId && Object.hasOwn(platformAttributes, platformId)) {
         platform = Object.hasOwn(platformIds, platformId) ? platformIds[platformId] : platformId;
@@ -108,10 +127,10 @@ async function handler(ctx) {
         items = platformAttribute.versionHistory;
         title = `${appName}${platform ? ` for ${platform} ` : ' '}`;
         description = platformAttribute.description.standard;
+        image = platformAttribute.iconArtwork?.url?.replace('{w}x{h}{c}.{f}', '3000x3000bb.webp');
     } else {
         title = appName;
-        for (const pid of Object.keys(platformAttributes)) {
-            const platformAttribute = platformAttributes[pid];
+        for (const [pid, platformAttribute] of Object.entries<any>(platformAttributes)) {
             items = [
                 ...items,
                 ...platformAttribute.versionHistory.map((v) => ({
@@ -119,39 +138,35 @@ async function handler(ctx) {
                     platformId: pid,
                 })),
             ];
-            description += platformAttribute.description.standard;
+            description = platformAttribute.description.standard;
+            image = platformAttribute.iconArtwork?.url?.replace('{w}x{h}{c}.{f}', '3000x3000bb.webp');
         }
     }
 
-    items = items.slice(0, limit).map((item) => {
-        const pid = item.platformId ?? platformId;
-        const p = platform ?? (Object.hasOwn(platformIds, pid) ? platformIds[pid] : pid);
+    items = items
+        .toSorted((a, b) => Number(parseDate(b.releaseTimestamp)) - Number(parseDate(a.releaseTimestamp)))
+        .slice(0, limit)
+        .map((item) => {
+            const pid = item.platformId ?? platformId;
+            const p = platform ?? (Object.hasOwn(platformIds, pid) ? platformIds[pid] : pid);
 
-        return {
-            title: `${appName} ${item.versionDisplay} for ${p}`,
-            link: currentUrl,
-            description: item.releaseNotes?.replace(/\n/g, '<br>'),
-            category: [p],
-            guid: `apple/apps/${country}/${id}/${pid}#${item.versionDisplay}`,
-            pubDate: parseDate(item.releaseTimestamp),
-        };
-    });
-
-    const icon = new URL('favicon.ico', rootUrl).href;
-
-    ctx.set('json', {
-        appData,
-    });
+            return {
+                title: `${appName} ${item.versionDisplay} for ${p}`,
+                link: currentUrl,
+                description: item.releaseNotes?.replaceAll('\n', '<br>'),
+                category: [p],
+                guid: `apple/apps/${country}/${id}/${pid}#${item.versionDisplay}`,
+                pubDate: parseDate(item.releaseTimestamp),
+            };
+        });
 
     return {
         item: items,
         title: `${title} - Apple App Store`,
         link: currentUrl,
-        description: description?.replace(/\n/g, ' '),
-        language: $('html').prop('lang'),
-        image: $('meta[property="og:image"]').prop('content'),
-        icon,
-        logo: icon,
+        description: description?.replaceAll('\n', ' '),
+        image,
+        logo: image,
         subtitle: appName,
         author: artistName,
         allowEmpty: true,

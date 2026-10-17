@@ -1,6 +1,9 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/doulist/:id',
@@ -15,7 +18,7 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    name: '豆瓣豆列',
+    name: '豆列',
     maintainers: ['LogicJake', 'honue'],
     handler,
 };
@@ -33,47 +36,57 @@ async function handler(ctx) {
     });
     const $ = load(response.data);
 
-    const title = $('#content h1').text().trim();
+    const title = $('#content h1').text();
     const description = $('div.doulist-about').text().trim();
     const out = $('div.doulist-item')
-        .map(function () {
-            const type = $(this).find('div.source').text().trim();
+        .toArray()
+        .map((item) => {
+            const type = $(item).find('div.source').text().trim();
 
-            let title = $(this).find('div.bd.doulist-note div.title a').text().trim();
-            let link = $(this).find('div.bd.doulist-note div.title a').attr('href');
-            let description = $(this).find('div.bd.doulist-note  div.abstract').text().trim();
+            let title = $(item).find('div.bd.doulist-note div.title a').text();
+            let link = $(item).find('div.bd.doulist-note div.title a').attr('href');
+            let description = $(item).find('div.bd.doulist-note  div.abstract').text().trim();
 
             if (type === '来自：豆瓣广播') {
-                title = $(this).find('p.status-content > a').text().trim();
-                link = $(this).find('p.status-content a').attr('href');
+                title = $(item).find('p.status-content > a').text();
+                link = $(item).find('p.status-content a').attr('href');
 
-                description = $(this).find('span.status-recommend-text').text().trim();
+                description = $(item).find('span.status-recommend-text').text().trim();
             }
 
-            if (type === '来自：豆瓣电影' || type === '来自：豆瓣' || type === '来自：豆瓣读书' || type === '来自：豆瓣音乐') {
-                title = $(this).find('div.bd.doulist-subject div.title a').text().trim();
-                link = $(this).find('div.bd.doulist-subject div.title a').attr('href');
+            if (['来自：豆瓣电影', '来自：豆瓣', '来自：豆瓣读书', '来自：豆瓣音乐'].includes(type)) {
+                title = $(item).find('div.bd.doulist-subject div.title a').text();
+                link = $(item).find('div.bd.doulist-subject div.title a').attr('href');
 
-                description = $(this).find('div.bd.doulist-subject div.abstract').text().trim();
+                description = $(item).find('div.bd.doulist-subject div.abstract').text().trim();
 
-                const ft = $(this).find('div.ft div.comment-item.content').text().trim();
+                const ft = $(item).find('div.ft div.comment-item.content').text().trim();
 
-                const img = $(this).find('div.post a img').attr('src');
+                const img = $(item).find('div.post a img').attr('src');
 
                 description = '<div><img width="100" src="' + img + '"></div>' + description + '<blockquote>' + ft + '</blockquote>';
             }
 
-            const date = $(this).find('div.ft div.actions time span').attr('title');
+            if (!link) {
+                const itemId = $(item).attr('id');
+                if (!itemId) {
+                    throw new Error('Douban returned a doulist entry without a source link or entry ID.');
+                }
+                link = `${url}#${encodeURIComponent(itemId)}`;
+                title ||= $(item).find('div.bd').text();
+                description ||= $(item).find('div.bd').html() || '';
+            }
+
+            const date = $(item).find('div.ft div.actions time').text();
 
             const single = {
                 title,
                 link,
                 description,
-                pubDate: new Date(date).toUTCString(),
+                pubDate: date ? timezone(parseDate(date), 8) : undefined,
             };
             return single;
-        })
-        .get();
+        });
 
     return {
         title,

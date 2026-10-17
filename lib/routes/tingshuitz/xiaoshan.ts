@@ -1,6 +1,8 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
     path: '/xiaoshan',
@@ -42,18 +44,14 @@ async function handler() {
         title: $('title').text(),
         link: 'https://www.xswater.com/gongshui/channels/227.html',
         description: $('meta[name="description"]').attr('content') || $('title').text(),
-        item:
-            list &&
-            list
-                .map((index, item) => {
-                    item = $(item);
-                    return {
-                        title: item.find('a').text(),
-                        description: `萧山区停水通知：${item.find('a').text()}`,
-                        pubDate: new Date(item.find('span').text().slice(1, 11)).toUTCString(),
-                        link: `https://www.xswater.com${item.find('a').attr('href')}`,
-                    };
-                })
-                .get(),
+        item: list.toArray().map((item) => {
+            const $item = $(item);
+            const publishedDate = $item.find('span').text().slice(1, 11);
+            return {
+                title: $item.find('a').text(),
+                pubDate: publishedDate.trim() ? parseDate(new Date(publishedDate)) : undefined,
+                link: `https://www.xswater.com${$item.find('a').attr('href')}`,
+            };
+        }),
     };
 }

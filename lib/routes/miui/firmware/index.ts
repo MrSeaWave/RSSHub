@@ -1,6 +1,7 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import queryString from 'query-string';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 
 export const route: Route = {
     path: '/firmware/:device/:type?/:region?',
@@ -9,14 +10,14 @@ export const route: Route = {
     parameters: { device: 'the device `codename` eg. `aries` for Mi 2S', type: 'type', region: 'Region, default to `cn`' },
     name: 'New firmware',
     maintainers: ['Indexyz'],
-    description: `  | stable  | development |
-  | ------- | ----------- |
-  | release | dev         |
+    description: `| stable  | development |
+| ------- | ----------- |
+| release | dev         |
 
-  | region | region |
-  | ------ | ------ |
-  | China  | cn     |
-  | Global | global |`,
+| region | region |
+| ------ | ------ |
+| China  | cn     |
+| Global | global |`,
     handler,
 };
 
@@ -39,6 +40,9 @@ async function handler(ctx) {
     });
 
     const responseData = response.data;
+    if (!responseData?.LatestFullRom?.version) {
+        throw new Error(`No firmware information was returned for ${device} (${type}, ${region}). Check the device codename and whether this firmware channel is still supported.`);
+    }
 
     return {
         title: `MIUI 更新 - ${device} - ${type === 'release' ? '稳定版' : '开发版'}`,

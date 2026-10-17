@@ -1,9 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 const host = 'https://yz.chsi.com.cn';
 
@@ -37,34 +38,41 @@ async function handler() {
     const $ = load(response.data);
     const list = $('ul.news-list').children();
 
+    const candidates = list.toArray().map((element) => {
+        const $item = $(element);
+        const path = $item.find('a').attr('href')!;
+        return {
+            title: $item.find('a').text(),
+            link: new URL(path, host).href,
+            path,
+            pubDate: timezone(parseDate($item.find('.span-time, .time').first().text()), 8),
+        };
+    });
+    const ordered = candidates;
+    const selected = ordered;
     const items = await Promise.all(
-        list.map((i, item) => {
-            item = $(item);
-            const itemTitle = item.find('a').text();
-            const itemDate = item.find('.span-time').text();
-            const path = item.find('a').attr('href');
-            const itemUrl = path.startsWith('http') ? path : host + path;
-            return cache.tryGet(itemUrl, async () => {
-                let description = '';
-                if (!path.startsWith('https://') && !path.startsWith('http://')) {
-                    const result = await got(itemUrl);
+        selected.map((item) =>
+            cache.tryGet(item.link, async () => {
+                let description: string;
+                if (!item.path.startsWith('https://') && !item.path.startsWith('http://')) {
+                    const result = await got(item.link);
                     const $ = load(result.data);
-                    description = $('#article_dnull').html().trim();
+                    description = $('#article_dnull').html()!.trim();
                 } else {
-                    description = itemTitle;
+                    description = item.title;
                 }
                 return {
-                    title: itemTitle,
-                    link: itemUrl,
-                    pubDate: timezone(parseDate(itemDate), 8),
+                    title: item.title,
+                    link: item.link,
+                    pubDate: item.pubDate,
                     description,
                 };
-            });
-        })
+            })
+        )
     );
 
     return {
-        title: `中国研究生招生信息网 - 考研动态`,
+        title: '中国研究生招生信息网 - 考研动态',
         link: `${host}/kyzx/kydt/`,
         description: '中国研究生招生信息网 - 考研动态',
         item: items,

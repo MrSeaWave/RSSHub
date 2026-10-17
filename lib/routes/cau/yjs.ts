@@ -1,7 +1,9 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/yjs',
@@ -52,15 +54,16 @@ async function handler() {
         item:
             list &&
             list.toArray().map((item) => {
-                item = $(item);
-                const a = item.find('a');
+                const $item = $(item);
+                const a = $item.find('a');
+                const href = a.attr('href')!.replace(/^https?\/\//, (prefix) => prefix.replace('//', '://'));
                 return {
                     title: a
                         .contents()
                         .filter((_, node) => node.type === 'text')
                         .text(),
-                    link: `${baseUrl}${a.attr('href')}`,
-                    pubDate: parseDate(item.find('span').text().replaceAll(/[[\]]/g, '')),
+                    link: new URL(href, baseUrl).href,
+                    pubDate: timezone(parseDate($item.find('span').text().replaceAll(/[[\]]/g, '')), 8),
                 };
             }),
     };

@@ -1,13 +1,15 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
+import MarkdownIt from 'markdown-it';
+
 import { config } from '@/config';
 import ConfigNotFoundError from '@/errors/types/config-not-found';
-import MarkdownIt from 'markdown-it';
+import type { Route } from '@/types';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+
 const md = MarkdownIt({
     html: true,
     linkify: true,
 });
-import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
     path: '/discussion/:user/:repo/:state?/:category?',
@@ -145,7 +147,6 @@ async function handler(ctx) {
     const data = response.data.data.repository.discussions.nodes.filter((item) => (closed === null ? item : item.closed === closed)).filter((item) => (locked === null ? item : item.locked === locked));
 
     return {
-        allowEmpty: true,
         title: `${user}/${repo} Discussions`,
         link: host,
         item: data.map((item) => ({

@@ -1,4 +1,5 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
+
 export const route: Route = {
     path: '/coronavirus',
     categories: ['other'],
@@ -12,11 +13,12 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    name: 'South China Morning Post - China coronavirus outbreak',
+    name: 'China coronavirus outbreak',
     maintainers: ['DIYgod'],
     handler,
 };
 
 function handler(ctx) {
     ctx.set('redirect', '/scmp/topics/coronavirus-pandemic-all-stories');
+    return null;
 }

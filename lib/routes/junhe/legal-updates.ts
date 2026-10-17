@@ -1,12 +1,14 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
 
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const handler = async (ctx) => {
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 10;
+    const limit = getRouteLimit(ctx, 10);
 
     const rootUrl = 'https://junhe.com';
     const currentUrl = new URL('legal-updates', rootUrl).href;
@@ -15,24 +17,25 @@ export const handler = async (ctx) => {
 
     const $ = load(response);
 
-    const language = $('html').prop('lang');
+    const language = $('html').prop('lang') as Language;
 
     let items = $('a.content-wrap')
         .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
             return {
-                title: item.find('h1.news.detail').text(),
-                pubDate: parseDate(item.find('p.date').text(), 'YYYY.MM.DD'),
-                link: new URL(item.prop('href'), rootUrl).href,
+                title: $item.find('h1.news.detail').text(),
+                pubDate: parseDate($item.find('p.date').text(), 'YYYY.MM.DD'),
+                link: new URL($item.prop('href')!, rootUrl).href,
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
+    items = await pMap(
+        items,
+        (item) =>
+            cache.tryGet(item.link!, async () => {
                 const { data: detailResponse } = await got(item.link);
 
                 const $$ = load(detailResponse);
@@ -52,18 +55,18 @@ export const handler = async (ctx) => {
                 item.language = language;
 
                 return item;
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
-    const image = new URL($('a.site-logo img').prop('src'), rootUrl).href;
+    const imageSrc = $('a.site-logo img').prop('src');
+    const image = imageSrc ? new URL(imageSrc, rootUrl).href : undefined;
 
     return {
         title: $('title').text(),
         description: $('meta[name="description"]').prop('content'),
         link: currentUrl,
         item: items,
-        allowEmpty: true,
         image,
         author: '君合律师事务所',
         language,
@@ -74,7 +77,7 @@ export const route: Route = {
     path: '/legal-updates',
     name: '君合法评',
     url: 'junhe.com',
-    maintainers: ['nczitzk'],
+    maintainers: ['snipersteve', 'nczitzk'],
     handler,
     example: '/junhe/legal-updates',
     description: '',
@@ -91,7 +94,7 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['/legal-updates'],
+            source: ['junhe.com/legal-updates'],
             target: '/legal-updates',
         },
     ],

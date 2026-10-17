@@ -1,8 +1,15 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import type { Context } from 'hono';
+import pMap from 'p-map';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
+
+import { selectItems } from '../utils';
 
 const baseUrl = 'https://gs.dhu.edu.cn';
 
@@ -28,38 +35,42 @@ export const route: Route = {
     maintainers: ['fox2049'],
     handler,
     description: `| 新闻动态 | 通知公告 | 选课考试 |
-  | -------- | -------- | -------- |
-  | trend    | notice   | class    |`,
+| -------- | -------- | -------- |
+| trend    | notice   | class    |`,
 };
 
-async function handler(ctx) {
+async function handler(ctx: Context) {
     const type = ctx.req.param('type') || 'class';
+    if (!Object.hasOwn(map, type)) {
+        throw new InvalidParameterError('Invalid notification type. Use trend, notice, or class.');
+    }
     const link = `${baseUrl}${map[type]}`;
     const { data: response } = await got(link);
 
     const $ = load(response);
     const list = $('.sub_list > li')
         .toArray()
-        .map((item) => {
-            item = $(item);
-            const a = item.find('a').first();
+        .map((item): DataItem & { link: string; pubDate: Date } => {
+            const $item = $(item);
+            const a = $item.find('a').first();
             return {
-                title: a.attr('title'),
-                link: a.attr('href').startsWith('http') ? a.attr('href') : `${baseUrl}${a.attr('href')}`,
-                pubDate: parseDate(item.find('span').text()),
+                title: a.attr('title')!,
+                link: new URL(a.attr('href')!, baseUrl).href,
+                pubDate: timezone(parseDate($item.find('span').text()), 8),
             };
         });
 
     // item content
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
+    const items = await pMap(
+        selectItems(list),
+        (item) =>
+            cache.tryGet(item.link!, async () => {
                 const { data: response } = await got(item.link);
                 const $ = load(response);
-                item.description = $('.wp_articlecontent').first().html();
+                item.description = $('.wp_articlecontent').html();
                 return item;
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
     return {

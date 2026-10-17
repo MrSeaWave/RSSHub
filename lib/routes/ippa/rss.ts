@@ -1,6 +1,6 @@
-import { Route } from '@/types';
-import { parseDate } from '@/utils/parse-date';
+import type { Route } from '@/types';
 import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
     path: '/',
@@ -28,7 +28,7 @@ async function handler() {
         item: list.map((item) => ({
             title: item.title.rendered,
             link: item.link,
-            pubDate: parseDate(item.date_gmt),
+            pubDate: item.date_gmt ? parseDate(`${item.date_gmt}Z`) : undefined,
             description: item.content.rendered,
         })),
     };

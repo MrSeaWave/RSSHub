@@ -1,8 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
     path: '/transcripts',
@@ -21,23 +24,23 @@ export const route: Route = {
 };
 
 export async function handler(ctx) {
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 30;
+    const limit = getRouteLimit(ctx, 30);
 
     const rootUrl = 'https://www.reactiflux.com';
-    const currentUrl = new URL(`transcripts`, rootUrl).href;
+    const currentUrl = new URL('transcripts', rootUrl).href;
 
     const { data: response } = await got(currentUrl);
 
     const $ = load(response);
 
     const author = 'Reactiflux';
-    const language = 'en';
+    const language: Language = 'en';
     const image = $('meta[property="og:image"]').prop('content');
 
-    let items =
+    let items: Array<DataItem & { link: string }> =
         JSON.parse(response.match(/__NEXT_DATA__" type="application\/json">(.*?)<\/script>/)?.[1] ?? '{}')
             ?.props.pageProps.all.slice(0, limit)
-            .map((item) => {
+            .map((item: { title: string; path: string }) => {
                 const title = item.title;
                 const guid = `reactiflux-${item.path.replace(/\/transcripts\//, '')}`;
 
@@ -53,18 +56,18 @@ export async function handler(ctx) {
                 };
             }) ?? [];
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
+    items = await pMap(
+        items,
+        (item) =>
+            cache.tryGet(`reactiflux:transcript:v3:${item.link}`, async () => {
                 const { data: detailResponse } = await got(item.link);
 
                 const data = JSON.parse(detailResponse.match(/__NEXT_DATA__" type="application\/json">(.*)<\/script>/)?.[1] ?? '{}');
 
-                if (!data.props) {
-                    return item;
+                const props = data.props?.pageProps;
+                if (!props?.title || typeof props.html !== 'string' || !props.html || typeof data.query?.slug !== 'string' || !data.query.slug) {
+                    throw new Error('Reactiflux transcript content is missing');
                 }
-
-                const props = data.props.pageProps;
 
                 const title = props.title;
                 const description = props.html;
@@ -72,7 +75,7 @@ export async function handler(ctx) {
 
                 item.title = title;
                 item.description = description;
-                item.pubDate = parseDate(props.date);
+                item.pubDate = props.date ? parseDate(`${props.date} +0000`, 'YYYY-MM-DD ZZ') : undefined;
                 item.link = new URL(`transcripts/${data.query.slug}`, rootUrl).href;
                 item.author = author;
                 item.guid = guid;
@@ -86,8 +89,8 @@ export async function handler(ctx) {
                 item.language = language;
 
                 return item;
-            })
-        )
+            }),
+        { concurrency: 6 }
     );
 
     return {

@@ -1,11 +1,12 @@
-import { Route } from '@/types';
-import getContent from '../utils/common';
+import type { Route } from '@/types';
+
+import { getContent } from '../utils/common';
 
 export const route: Route = {
-    path: '/gfxy/:category?/:page?',
+    path: '/gfxy/:category?',
     categories: ['university'],
     example: '/hunau/gfxy',
-    parameters: { category: '页面分类，默认为 `tzgg`', page: '页码，默认为 `1`' },
+    parameters: { category: '页面分类，默认为 `tzgg`' },
     features: {
         requireConfig: false,
         requirePuppeteer: false,
@@ -16,25 +17,34 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['xky.hunau.edu.cn/', 'xky.hunau.edu.cn/tzgg_8472', 'xky.hunau.edu.cn/:category'],
-            target: '/:category',
+            source: ['gfxy.hunau.edu.cn/'],
+            target: '/gfxy',
+        },
+        {
+            source: ['gfxy.hunau.edu.cn/tzgg_0', 'gfxy.hunau.edu.cn/tzgg_0/index.html'],
+            target: '/gfxy',
+        },
+        {
+            source: ['gfxy.hunau.edu.cn/xyyw', 'gfxy.hunau.edu.cn/xyyw/index.html'],
+            target: '/gfxy/xyyw',
         },
     ],
     name: '公共管理与法学学院',
-    maintainers: [],
+    maintainers: ['lcandy2'],
     handler,
-    url: 'xky.hunau.edu.cn/',
-    description: `| 分类 | 通知公告 | 学院新闻 | 其他分类通知... |
-  | ---- | -------- | -------- | --------------- |
-  | 参数 | tzgg     | xyxw     | 对应 URL        |`,
+    url: 'gfxy.hunau.edu.cn/',
+    description: `| 分类 | 通知公告 | 学院要闻 | 其他分类通知... |
+| ---- | -------- | -------- | --------------- |
+| 参数 | tzgg     | xyyw     | 对应 URL        |`,
 };
 
 async function handler(ctx) {
-    await getContent(ctx, {
+    return await getContent(ctx, {
         baseHost: 'https://gfxy.hunau.edu.cn',
-        baseCategory: 'tzgg', // 默认：通知公告
+        baseCategory: 'tzgg', // Default: notices
         baseTitle: '公共管理与法学学院',
         baseDescription: '湖南农业大学公共管理与法学学院',
         baseDeparment: 'gfxy',
+        baseClass: 'div.right_list ul li:has(a)',
     });
 }

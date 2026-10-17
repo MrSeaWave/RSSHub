@@ -1,12 +1,21 @@
-import { Route } from '@/types';
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 const rootUrl = 'https://www.abmedia.io';
 const cateAPIUrl = `${rootUrl}/wp-json/wp/v2/categories`;
 const postsAPIUrl = `${rootUrl}/wp-json/wp/v2/posts`;
 
-const getCategoryId = (category) => got.get(`${cateAPIUrl}?slug=${category}`).then((res) => res.data[0].id);
+const getCategoryId = async (category) => {
+    const res = await got.get(`${cateAPIUrl}?slug=${category}`);
+    const id = res.data[0]?.id;
+    if (!id) {
+        throw new InvalidParameterError(`Category "${category}" was not found.`);
+    }
+    return id;
+};
 
 export const route: Route = {
     path: '/:category?',
@@ -23,21 +32,26 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['www.abmedia.io/category/:catehory'],
+            source: ['abmedia.io/category/:category', 'abmedia.io/category/:parent/:category'],
+            target: '/:category',
+        },
+        {
+            source: ['www.abmedia.io/category/:category', 'www.abmedia.io/category/:parent/:category'],
             target: '/:category',
         },
     ],
     name: '类别',
-    maintainers: [],
+    maintainers: ['Fatpandac'],
     handler,
     description: `参数可以从链接中拿到，如：
 
-  \`https://www.abmedia.io/category/technology-development\` 对应 \`/abmedia/technology-development\``,
+\`https://www.abmedia.io/category/technology-development\` 对应 \`/abmedia/technology-development\``,
 };
 
 async function handler(ctx) {
     const category = ctx.req.param('category') ?? 'technology-development';
-    const limit = ctx.req.param('limit') ?? 25;
+    const requestedLimit = getRouteLimit(ctx, 25);
+    const limit = Math.min(Math.max(requestedLimit, 1), 100);
     const categoryId = await getCategoryId(category);
 
     const response = await got.get(`${postsAPIUrl}?categories=${categoryId}&page=1&per_page=${limit}`);
@@ -47,7 +61,7 @@ async function handler(ctx) {
         title: item.title.rendered,
         link: item.link,
         description: item.content.rendered,
-        pubDate: parseDate(item.date),
+        pubDate: parseDate(`${item.date_gmt}Z`),
     }));
 
     return {

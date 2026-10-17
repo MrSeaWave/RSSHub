@@ -1,22 +1,23 @@
-import got from '@/utils/got';
-import * as cheerio from 'cheerio';
-import { parseDate } from '@/utils/parse-date';
-import timezone from '@/utils/timezone';
-import cache from '@/utils/cache';
+import { load } from 'cheerio';
 
-import { Route } from '@/types';
+import type { Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
 
 const handler = async (ctx) => {
     const { category = 'zxfb' } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 15;
+    const limit = getRouteLimit(ctx, 15);
 
     const rootUrl = 'https://www.12371.cn/';
     const currentUrl = `${rootUrl}${category}/`;
     const response = await got(currentUrl);
 
-    const $ = cheerio.load(response.data);
+    const $ = load(response.data);
 
-    const pattern = /item=(\[{.*?}]);/;
+    const pattern = /item=(\[\{.*?\}\]);/;
     const newsList = JSON.parse($('script[language="javascript"]').text().match(pattern)?.[1].replaceAll("'", '"') || '[]');
 
     const topNewsList = newsList.slice(0, limit).map((item) => ({
@@ -29,7 +30,7 @@ const handler = async (ctx) => {
         topNewsList.map((item) =>
             cache.tryGet(item.link, async () => {
                 const detailResponse = await got(item.link);
-                const $ = cheerio.load(detailResponse.data);
+                const $ = load(detailResponse.data);
 
                 item.description = $('.word').html();
 
@@ -59,6 +60,6 @@ export const route: Route = {
     handler,
     url: 'www.12371.cn',
     description: `| 最新发布 |
-  | :------: |
-  |   zxfb   |`,
+| :------: |
+|   zxfb   |`,
 };

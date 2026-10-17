@@ -1,10 +1,13 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import utils from './utils';
-import { parseDate } from '@/utils/parse-date';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import puppeteer from '@/utils/puppeteer';
+
+import type { Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
+
+import utils from './utils';
 
 export const route: Route = {
     path: '/news/:type/:lang?',
@@ -13,7 +16,7 @@ export const route: Route = {
     parameters: { type: 'Category', lang: 'Language, default to `sc`. Supprot `en`(English), `sc`(Simplified Chinese), `tc`(Traditional Chinese) and `pt`(Portuguese)' },
     features: {
         requireConfig: false,
-        requirePuppeteer: true,
+        requirePuppeteer: false,
         antiCrawler: false,
         supportBT: false,
         supportPodcast: false,
@@ -24,36 +27,27 @@ export const route: Route = {
     handler,
     description: `Category
 
-  | All | Detected Cases | Investigation Reports or Recommendations | Annual Reports | CCAC's Updates |
-  | --- | -------------- | ---------------------------------------- | -------------- | -------------- |
-  | all | case           | Persuasion                               | AnnualReport   | PCANews        |`,
+| All | Detected Cases | Investigation Reports or Recommendations | Annual Reports | CCAC's Updates |
+| --- | -------------- | ---------------------------------------- | -------------- | -------------- |
+| all | case           | Persuasion                               | AnnualReport   | PCANews        |`,
 };
 
 async function handler(ctx) {
-    const browser = await puppeteer();
     const lang = ctx.req.param('lang') ?? 'sc';
     const type = utils.TYPE[ctx.req.param('type')];
 
     const BASE = utils.langBase(lang);
-    const page = await browser.newPage();
-    await page.setRequestInterception(true);
-    page.on('request', (request) => {
-        request.resourceType() === 'document' || request.resourceType() === 'script' ? request.continue() : request.abort();
-    });
-    await page.goto(BASE, {
-        waitUntil: 'domcontentloaded',
-    });
-    const articles = await page.evaluate(() => window.articles);
-    await browser.close();
+    const response = await got(BASE);
+    const articles = await utils.parseArticles(response.data);
 
     const list = utils
         .typeFilter(articles, type)
-        .slice(0, ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 30)
+        .slice(0, getRouteLimit(ctx, 30))
         .map((item) => ({
             title: item.name,
             category: item.tags.map((tag) => tag.name),
             link: utils.BASE_URL + item.url,
-            pubDate: parseDate(item.time, 'YYYY-MM-DD'),
+            pubDate: timezone(parseDate(item.time, 'YYYY-MM-DD'), 8),
         }));
 
     const items = await Promise.all(

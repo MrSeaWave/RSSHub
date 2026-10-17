@@ -1,9 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
-import { parseDate, parseRelativeDate } from '@/utils/parse-date';
+
+import { parseDateText } from './utils';
 
 export const route: Route = {
     path: '/qa/:category?/:state?',
@@ -23,54 +25,63 @@ export const route: Route = {
     handler,
     description: `分类
 
-  | 使用问题 | 动作开发 | BUG 反馈 | 功能建议 |
-  | -------- | -------- | -------- | -------- |
-  | 1        | 9        | 3        | 4        |
+| 使用问题 | 动作开发 | BUG 反馈 | 功能建议 |
+| -------- | -------- | -------- | -------- |
+| 1        | 9        | 3        | 4        |
 
-  | 动作需求 | 经验创意 | 动作推荐 | 信息发布 |
-  | -------- | -------- | -------- | -------- |
-  | 6        | 2        | 7        | 5        |
+| 动作需求 | 经验创意 | 动作推荐 | 信息发布 |
+| -------- | -------- | -------- | -------- |
+| 6        | 2        | 7        | 5        |
 
-  | 随便聊聊 | 异常报告 | 全部 |
-  | -------- | -------- | ---- |
-  | 8        | 10       | all  |
+| 随便聊聊 | 异常报告 | 全部 |
+| -------- | -------- | ---- |
+| 8        | 10       | all  |
 
-  状态
+状态
 
-  | 全部 | 精华   | 已归档  |
-  | ---- | ------ | ------- |
-  |      | digest | achived |`,
+| 全部 | 精华   | 已归档  |
+| ---- | ------ | ------- |
+|      | digest | achived |`,
 };
 
 async function handler(ctx) {
+    const requestedLimit = Number(ctx.req.query('limit'));
+    const limit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : 25;
     const category = ctx.req.param('category') ?? 'all';
     const state = ctx.req.param('state') ?? '';
 
     const rootUrl = 'https://getquicker.net';
-    const currentUrl = `${rootUrl}/QA${category === 'all' ? '' : `?category=${category}`}${state ? `?state=${state}` : ''}`;
+    const currentUrl = new URL('/QA', rootUrl);
+    if (category !== 'all') {
+        currentUrl.searchParams.set('category', category);
+    }
+    if (state) {
+        currentUrl.searchParams.set('state', state);
+    }
 
     const response = await got({
         method: 'get',
-        url: currentUrl,
+        url: currentUrl.href,
     });
 
     const $ = load(response.data);
 
     let items = $('a.question-title')
-        .slice(0, ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 25)
+        .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
             return {
-                title: item.text(),
-                link: `${rootUrl}${item.attr('href')}`,
+                title: $item.text(),
+                link: `${rootUrl}${$item.attr('href')}`,
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
+    items = await pMap(
+        items,
+        (item) =>
+            cache.tryGet(item.link!, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,
@@ -83,22 +94,20 @@ async function handler(ctx) {
                 const pubDate = content('.info-text')
                     .first()
                     .text()
-                    .replace(/创建于 /, '')
-                    .trim();
+                    .replace(/创建于 /, '');
 
                 item.description = content('.topic-body').html();
                 item.author = content('.user-link').first().text();
-                item.pubDate = timezone(/-/.test(pubDate) ? parseDate(pubDate) : parseRelativeDate(pubDate), +8);
+                item.pubDate = parseDateText(pubDate) ?? item.pubDate;
 
                 return item;
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
     return {
         title: $('title').text(),
-        link: currentUrl,
+        link: currentUrl.href,
         item: items,
-        allowEmpty: true,
     };
 }

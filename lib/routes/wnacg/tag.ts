@@ -1,4 +1,5 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
+
 import { handler } from './common';
 
 export const route: Route = {
@@ -8,10 +9,13 @@ export const route: Route = {
     example: '/wnacg/tag/漢化',
     radar: [
         {
-            source: ['wnacg.com/*'],
-            target: (_, url) => `/wnacg/tag/${new URL(url).pathname.match(/albums-index-tag-(.+?)\.html$/)[1]}`,
+            source: ['wnacg.com/albums-index-tag-:tag.html'],
+            target: '/tag/:tag',
         },
     ],
     handler,
     url: 'wnacg.com/albums.html',
+    features: {
+        nsfw: true,
+    },
 };

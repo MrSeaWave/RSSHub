@@ -1,15 +1,17 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import { Client, isNotionClientError, APIErrorCode } from '@notionhq/client';
-import logger from '@/utils/logger';
-import { config } from '@/config';
-import { parseDate } from '@/utils/parse-date';
-import got from '@/utils/got';
-import { NotionToMarkdown } from 'notion-to-md';
+import { APIErrorCode, Client, isFullPage, isNotionClientError } from '@notionhq/client';
 import { load } from 'cheerio';
 import MarkdownIt from 'markdown-it';
+import { NotionToMarkdown } from 'notion-to-md';
+
+import { config } from '@/config';
 import ConfigNotFoundError from '@/errors/types/config-not-found';
 import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+import logger from '@/utils/logger';
+import { parseDate } from '@/utils/parse-date';
+
 const md = MarkdownIt({
     html: true,
     linkify: true,
@@ -44,15 +46,15 @@ export const route: Route = {
     handler,
     description: `There is an optional query parameter called \`properties=\` that can be used to customize field mapping. There are three built-in fields: author, pubTime and link, which can be used to add additional information.
 
-  For example, if you have set up three properties in your database - "Publish Time", "Author", and "Original Article Link" - then execute the following JavaScript code to get the result for the properties parameter.
+For example, if you have set up three properties in your database - "Publish Time", "Author", and "Original Article Link" - then execute the following JavaScript code to get the result for the properties parameter.
 
-  \`\`\`js
-  encodeURIComponent(JSON.stringify({"pubTime": "Publish Time", "author": "Author", "link": "Original Article Link"}))
-  \`\`\`
+\`\`\`js
+encodeURIComponent(JSON.stringify({"pubTime": "Publish Time", "author": "Author", "link": "Original Article Link"}))
+\`\`\`
 
-  There is an optional query parameter called \`query=\` that can be used to customize the search rules for your database, such as custom sorting and filtering rules.
+There is an optional query parameter called \`query=\` that can be used to customize the search rules for your database, such as custom sorting and filtering rules.
 
-  please refer to the [Notion API documentation](https://developers.notion.com/reference/post-database-query) and execute \`encodeURIComponent(JSON.stringify(custom rules))\` to provide the query parameter.`,
+please refer to the [Notion API documentation](https://developers.notion.com/reference/post-database-query) and execute \`encodeURIComponent(JSON.stringify(custom rules))\` to provide the query parameter.`,
 };
 
 async function handler(ctx) {
@@ -69,16 +71,19 @@ async function handler(ctx) {
 
     try {
         // Query database basic info
-        const database = await notion.databases.retrieve({ database_id: databaseId });
+        const database = (await notion.databases.retrieve({ database_id: databaseId })) as any;
         const title = database.title[0]?.plain_text;
         const description = database.description[0]?.plain_text;
         const link = database.url;
         const image = database.cover?.external.url ?? database.icon?.emoji;
 
         // List pages under the database
+        if (database.data_sources?.length !== 1) {
+            throw new InvalidParameterError('The database must have exactly one data source to query its pages.');
+        }
         const databaseQuery = parseCustomQuery(ctx.req.query('query'));
-        const { results } = await notion.databases.query({
-            database_id: databaseId,
+        const { results } = await notion.dataSources.query({
+            data_source_id: database.data_sources[0].id,
             ...databaseQuery,
         });
         const customProperties = parseCustomQuery(ctx.req.query('properties')) ?? {};
@@ -90,10 +95,10 @@ async function handler(ctx) {
 
         // Query page content
         const n2m = new NotionToMarkdown({ notionClient: notion });
-        const pageList = results.filter((item) => Object.values(item.properties).find((property) => property.id === 'title')?.title[0]?.plain_text);
+        const pageList = results.filter(isFullPage).filter((item) => Object.values<any>(item.properties).find((property) => property.id === 'title')?.title[0]?.plain_text);
         const items = await Promise.all(
             pageList.map(async (page) => {
-                const titleProperty = Object.values(page.properties).find((property) => property.id === 'title');
+                const titleProperty = Object.values<any>(page.properties).find((property) => property.id === 'title');
                 const pageTitle = titleProperty.title[0].plain_text;
                 const pageLink = page.url;
                 const pageLastEditedTime = page.last_edited_time;
@@ -162,16 +167,14 @@ async function handler(ctx) {
         logger.error(error);
 
         if (isNotionClientError(error)) {
-            if (error.statusCode === APIErrorCode.ObjectNotFound) {
-                throw new InvalidParameterError('The database is not exist');
-            } else if (error.statusCode === APIErrorCode.Unauthorized) {
-                throw new ConfigNotFoundError('Please check the config of NOTION_TOKEN');
-            } else {
-                ctx.throw(error.statusCode, 'Notion API Error');
+            if (error.code === APIErrorCode.ObjectNotFound) {
+                throw new InvalidParameterError('The database does not exist or is not shared with the Notion integration.');
             }
-        } else {
-            ctx.throw(error);
+            if (error.code === APIErrorCode.Unauthorized) {
+                throw new ConfigNotFoundError('Please check the config of NOTION_TOKEN');
+            }
         }
+        throw error;
     }
 }
 

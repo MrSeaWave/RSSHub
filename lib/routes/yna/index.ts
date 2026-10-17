@@ -1,10 +1,14 @@
-import { Route } from '@/types';
-import parser from '@/utils/rss-parser';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import { config } from '@/config';
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
-import timezone from '@/utils/timezone';
+import parser from '@/utils/rss-parser';
+import { isValidHost } from '@/utils/valid-host';
 
 export const route: Route = {
     path: '/:lang?/:channel?',
@@ -25,12 +29,12 @@ export const route: Route = {
     name: 'News',
     maintainers: ['quiniapiezoelectricity'],
     handler,
-    description: `
-| Language  | 한국어 | English | 简体中文 | 日本語 | عربي   | Español | Français |
-| --------- | ------ | ------- | -------- | ------ | ------ | ------- | -------- |
-| \`:lang\` | \`ko\` | \`en\`  | \`cn\`   | \`jp\` | \`ar\` | \`es\`  | \`fr\`   |
+    description: `| Language | 한국어 | English | 简体中文 | 日本語 | عربي | Español | Français |
+| -------- | ------ | ------- | -------- | ------ | ---- | ------- | -------- |
+| \`:lang\`  | \`ko\`   | \`en\`    | \`cn\`     | \`jp\`   | \`ar\` | \`es\`    | \`fr\`     |
 
 For a full list of RSS Feed Channels, please refer to the RSS feed page of the corresponding language
+
 | RSS Feed Page                                             |
 | --------------------------------------------------------- |
 | [한국어](https://www.yna.co.kr/rss/index?site=footer_rss) |
@@ -41,15 +45,83 @@ For a full list of RSS Feed Channels, please refer to the RSS feed page of the c
 | [Español](https://sp.yna.co.kr/channel/index)             |
 | [Français](https://fr.yna.co.kr/channel/index)            |
 
-:::tip
-For example, the path for the RSS feed url https://www.yna.co.kr/rss/economy.xml and https://cn.yna.co.kr/RSS/news.xml would be \`/ko/economy\` and \`/cn/news\` respectively. 
-:::
-`,
+::: tip
+For example, the path for the RSS feed url <https://www.yna.co.kr/rss/economy.xml> and <https://cn.yna.co.kr/RSS/news.xml> would be \`/ko/economy\` and \`/cn/news\` respectively.
+:::`,
 };
+
+async function fetchFeed(url: string, redirectCount = 0): Promise<string> {
+    let status = 0;
+    let location: string | null = null;
+    let contentType = '';
+    const response = await got(url, {
+        responseType: 'buffer',
+        redirect: 'manual',
+        retry: 0,
+        timeout: 60000,
+        ignoreResponseError: true,
+        headers: {
+            'User-Agent': config.ua,
+            Accept: 'application/rss+xml',
+        },
+        onResponse({ response }) {
+            status = response.status;
+            location = response.headers.get('location');
+            contentType = response.headers.get('content-type') ?? '';
+        },
+    });
+
+    if (status >= 300 && status < 400 && location) {
+        if (redirectCount === 5) {
+            throw new Error('Too many redirects');
+        }
+        return fetchFeed(new URL(location, url).href, redirectCount + 1);
+    }
+    if (status >= 300) {
+        throw new Error(`Status code ${status}`);
+    }
+
+    const charset = contentType.match(/(encoding|charset)\s*=\s*(\S+)/)?.[2]?.toLowerCase() ?? '';
+    const encoding = charset === 'utf-8' ? 'utf8' : charset === 'iso-8859-1' ? 'latin1' : charset;
+    const supportedEncodings = ['ascii', 'utf8', 'utf16le', 'ucs2', 'base64', 'latin1', 'binary', 'hex'];
+    return response.body.toString(supportedEncodings.includes(encoding) ? (encoding as BufferEncoding) : 'utf8');
+}
+
+function parsePublicationDate(value: string | undefined): Date | undefined {
+    if (typeof value !== 'string' || !value.trim()) {
+        return;
+    }
+    const date = parseDate(value);
+    if (Number.isFinite(date.getTime())) {
+        return date;
+    }
+    return;
+}
+
+async function fetchArticleDetails(link: string): Promise<Pick<DataItem, 'author' | 'description'>> {
+    const response = await got(link);
+    const $ = load(response.data);
+    const article = $('article.story-news');
+    article.find('.related-group').remove();
+    article.find('.writer-zone01').remove();
+
+    return {
+        author: $('.tit-name')
+            .toArray()
+            .map((item) => $(item).text())
+            .join(', '),
+        description: article.html(),
+    };
+}
 
 async function handler(ctx) {
     const lang = ctx.req.param('lang') ?? 'ko';
     const channel = ctx.req.param('channel') ?? 'news';
+
+    if (!isValidHost(lang)) {
+        throw new InvalidParameterError('Invalid lang');
+    }
+
     let url;
     switch (lang) {
         case 'ko':
@@ -60,30 +132,24 @@ async function handler(ctx) {
             break;
     }
 
-    const feed = await parser.parseURL(url);
-    const items = await Promise.all(
-        feed.items.map((item) =>
-            cache.tryGet(item.link, async () => {
-                item.pubDate = lang === 'ko' ? parseDate(item.pubDate) : timezone(parseDate(item.pubDate), +9); // Timezone is only included in the pubDate of the Korean language RSS
-                const response = await got(item.link);
-                const $ = load(response.data);
-                item.author =
-                    item.creator ??
-                    $('.tit-name')
-                        .toArray()
-                        .map((c) => $(c).text())
-                        .join(', ');
-                const article = $('article.story-news');
-                article.find('.related-group').remove();
-                article.find('.writer-zone01').remove();
-                item.description = article.html();
-                return item;
-            })
-        )
+    const feed = await parser.parseString(await fetchFeed(url));
+    const items = await pMap(
+        feed.items,
+        async (item) => {
+            const details = await cache.tryGet<Pick<DataItem, 'author' | 'description'>>(`yna:article:${item.link}`, () => fetchArticleDetails(item.link!));
+            return {
+                title: item.title!,
+                link: item.link,
+                pubDate: parsePublicationDate(item.pubDate),
+                author: item.creator ?? details.author,
+                description: details.description,
+            };
+        },
+        { concurrency: 3, stopOnError: false }
     );
 
     return {
-        title: feed.title,
+        title: feed.title!,
         link: feed.link,
         description: feed.description,
         language: feed.language ?? lang,

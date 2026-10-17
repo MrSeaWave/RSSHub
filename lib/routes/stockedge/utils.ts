@@ -1,3 +1,4 @@
+import type { DataItem } from '@/types';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
@@ -12,18 +13,24 @@ const getData = (url) =>
         },
     });
 
-const getList = (data) =>
-    data.map((value) => {
+type NewsItem = DataItem & { link: string; securityID?: number };
+
+const getList = (data): NewsItem[] =>
+    data.map((value): NewsItem => {
         const { ID, Description: title, Date: createdOn, NewsitemSecurities, NewsitemSectors, NewsitemIndustries } = value;
-        const securityID = NewsitemSecurities[0].SecurityID;
+        const securityID = NewsitemSecurities?.[0]?.SecurityID;
+        const securitySlug = NewsitemSecurities?.[0]?.SecuritySlug;
+        const sectors = NewsitemSectors.map((v) => v.SectorName);
+        const industries = NewsitemIndustries.map((v) => v.IndustryName);
         return {
             id: ID,
-            title: `${title}  [${NewsitemSectors.map((v) => v.SectorName).join(', ')}]`,
-            description: title,
+            title: `${title}  [${sectors.join(', ')}]`,
+            description: value.Details ?? title,
             securityID,
-            link: `${baseUrl}${NewsitemSecurities[0].SecuritySlug}/${securityID}`,
-            pubDate: parseDate(createdOn),
-            category: [...NewsitemIndustries.map((v) => v.IndustryName), ...NewsitemSectors.map((v) => v.SectorName)],
+            link: NewsitemSecurities?.length === 0 ? '' : `${baseUrl}${securitySlug}/${securityID}?section=news`,
+            guid: String(ID),
+            pubDate: createdOn ? parseDate(/^\d{4}-\d{2}-\d{2}T00:00:00$/.test(createdOn) ? `${createdOn}Z` : createdOn) : undefined,
+            category: [...industries, ...sectors],
         };
     });
 

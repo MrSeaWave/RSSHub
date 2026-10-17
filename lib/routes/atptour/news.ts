@@ -1,11 +1,12 @@
-import { Route } from '@/types';
-import { parseDate } from '@/utils/parse-date';
-import got from '@/utils/got';
 import { config } from '@/config';
+import type { Route } from '@/types';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
     path: '/news/:lang?',
-    categories: ['other'],
+    categories: ['sport'],
     example: '/atptour/news/en',
     parameters: { lang: 'en or es.' },
     radar: [
@@ -22,7 +23,7 @@ async function handler(ctx) {
     const baseUrl = 'https://www.atptour.com';
     const favIcon = `${baseUrl}/assets/atptour/assets/favicon.ico`;
     const { lang = 'en' } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 15;
+    const limit = getRouteLimit(ctx, 15);
 
     const link = `${baseUrl}/${lang}/-/tour/news/latest-filtered-results/0/${limit}`;
     const { data } = await got(link, {

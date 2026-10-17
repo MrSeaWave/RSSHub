@@ -1,13 +1,8 @@
-import { Route } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
-
+import type { Route } from '@/types';
 import got from '@/utils/got';
-import { art } from '@/utils/render';
-import path from 'node:path';
-import cache from './cache';
 
-const renderDescription = (description, images) => art(path.join(__dirname, '../templates/description.art'), { description, images });
+import { renderDescription } from '../templates/description';
+import cache from './cache';
 
 export const route: Route = {
     path: '/bbs/follow-list/:uid',
@@ -29,14 +24,15 @@ export const route: Route = {
 
 async function handler(ctx) {
     const uid = ctx.req.param('uid');
-    const page_size = ctx.req.query('limit') || '20';
+    const requestedLimit = Number(ctx.req.query('limit'));
+    const pageSize = String(Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : 20);
     const searchParams = {
         gids: 2,
         uid,
-        page_size,
+        page_size: pageSize,
     };
     const link = `https://www.miyoushe.com/ys/accountCenter/followList?id=${uid}`;
-    const url = `https://bbs-api.miyoushe.com/user/wapi/following`;
+    const url = 'https://bbs-api.miyoushe.com/user/wapi/following';
     const response = await got({
         method: 'get',
         url,

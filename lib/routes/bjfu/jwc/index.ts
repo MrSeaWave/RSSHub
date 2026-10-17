@@ -1,7 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
+import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+
 import util from './utils';
 
 export const route: Route = {
@@ -26,8 +30,8 @@ export const route: Route = {
     maintainers: ['markmingjie'],
     handler,
     description: `| 教务快讯 | 考试信息 | 课程信息 | 教改动态 | 图片新闻 |
-  | -------- | -------- | -------- | -------- | -------- |
-  | jwkx     | ksxx     | kcxx     | jgdt     | tpxw     |`,
+| -------- | -------- | -------- | -------- | -------- |
+| jwkx     | ksxx     | kcxx     | jgdt     | tpxw     |`,
 };
 
 async function handler(ctx) {
@@ -65,7 +69,10 @@ async function handler(ctx) {
     const data = response.data; // 不用转码
     const $ = load(data);
 
-    const list = $('.list_c li').slice(0, 15).toArray();
+    const sourceList = $('.list_c li').slice(0, 15).toArray();
+    const limit = getRouteLimit(ctx);
+    const sortedList = limit !== undefined && ctx.req.query('sorted') !== 'false' ? sourceList.toSorted((a, b) => Number(parseDate($(b).find('.datetime').text())) - Number(parseDate($(a).find('.datetime').text()))) : sourceList;
+    const list = sortedList.slice(0, limit);
 
     const result = await util.ProcessFeed(base, list, cache); // 感谢@hoilc指导
 

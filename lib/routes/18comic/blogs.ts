@@ -1,7 +1,8 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
 import { defaultDomain, getRootUrl } from './utils';
@@ -18,6 +19,7 @@ export const route: Route = {
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
+        nsfw: true,
     },
     radar: [
         {
@@ -25,14 +27,14 @@ export const route: Route = {
         },
     ],
     name: '文庫',
-    maintainers: ['nczitzk'],
+    maintainers: ['nczitzk', 'pseudoyu'],
     handler,
     url: 'jmcomic.group/',
     description: `分类
 
-  | 全部 | 紳夜食堂 | 遊戲文庫 | JG GAMES | 模型山下 |
-  | ---- | -------- | -------- | -------- | -------- |
-  |      | dinner   | raiders  | jg       | figure   |`,
+| 全部 | 紳夜食堂 | 遊戲文庫 | JG GAMES | 模型山下 |
+| ---- | -------- | -------- | -------- | -------- |
+|      | dinner   | raiders  | jg       | figure   |`,
 };
 
 async function handler(ctx) {
@@ -49,47 +51,50 @@ async function handler(ctx) {
 
     const $ = load(response.data);
 
-    let items = $('.title')
+    const list = $('.title')
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem & { guid: string } => {
+            const $item = $(item);
 
             return {
-                title: item.text(),
-                link: `${rootUrl}${item.parent().attr('href')}`,
-                guid: `https://18comic.org${item.parent().attr('href')}`,
+                title: $item.text(),
+                link: `${rootUrl}${$item.parent().attr('href')}`,
+                guid: `https://18comic.org${$item.parent().attr('href')}`,
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.guid, async () => {
-                const detailResponse = await got({
-                    method: 'get',
-                    url: item.link,
-                });
+    const items = await Promise.all(
+        new Map(list.map((item) => [item.guid, item]))
+            .values()
+            .toArray()
+            .map((item) =>
+                cache.tryGet(item.guid, async () => {
+                    const detailResponse = await got({
+                        method: 'get',
+                        url: item.link,
+                    });
 
-                const content = load(detailResponse.data);
+                    const content = load(detailResponse.data);
 
-                item.pubDate = parseDate(content('.date').first().text());
+                    item.pubDate = parseDate(content('.date').first().text());
 
-                content('.d-flex').remove();
+                    content('.d-flex').remove();
 
-                item.author = content('.blog_name_id').first().text();
-                item.description = content('.blog_content').html();
-                item.category = content('.panel-heading dropdown-toggle')
-                    .toArray()
-                    .map((c) => $(c).text());
+                    item.author = content('.blog_name_id').first().text();
+                    item.description = content('.blog_content').html();
+                    item.category = content('.panel-heading dropdown-toggle')
+                        .toArray()
+                        .map((c) => $(c).text());
 
-                return item;
-            })
-        )
+                    return item;
+                })
+            )
     );
 
     return {
         title: $('title')
             .text()
-            .replace(/最新的/, $('.article-nav .active').text()),
+            .replace(/最新的/, () => $('.article-nav .active').text()),
         link: currentUrl,
         item: items,
         description: $('meta[property="og:description"]').attr('content'),

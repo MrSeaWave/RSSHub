@@ -1,10 +1,20 @@
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
+import { parseDate } from '@/utils/parse-date';
 
-import { art } from '@/utils/render';
-import path from 'node:path';
+import { renderGoods } from './templates/goods';
 
-const parseModule = (floors, module_key) => floors.find((floor) => floor.module_key === module_key);
+const parseModule = (floors, moduleKey) => floors.find((floor) => floor.module_key === moduleKey);
+
+const parseGoodsDate = (value) => {
+    if (!['number', 'string'].includes(typeof value) || (typeof value === 'string' && !value.trim())) {
+        return;
+    }
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp)) {
+        return;
+    }
+    const date = parseDate(timestamp * 1000);
+    return Number.isFinite(date.getTime()) ? date : undefined;
+};
 
 const parseFloorItem = (floor) =>
     floor.data.items.map((item) => {
@@ -13,9 +23,9 @@ const parseFloorItem = (floor) =>
             title: i.name,
             link: i.jump_url,
             guid: `xiaomiyoupin:${i.gid}`,
-            description: art(path.join(__dirname, 'templates/goods.art'), i),
-            pubDate: (i.start || i.start_time) * 1000,
+            description: renderGoods(i),
+            pubDate: parseGoodsDate(i.start || i.start_time)?.getTime(),
         };
     });
 
-export { parseModule, parseFloorItem };
+export { parseFloorItem, parseGoodsDate, parseModule };

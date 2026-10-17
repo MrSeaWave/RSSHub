@@ -1,9 +1,13 @@
-import { Route } from '@/types';
+import pMap from 'p-map';
+
+import { config } from '@/config';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import { webBaseUrl, generateNonce, sign, getPost } from '../utils';
-import { config } from '@/config';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import { generateNonce, getPost, sign, webBaseUrl } from '../utils';
 
 export const route: Route = {
     path: '/bbs/profile/thread/:userId',
@@ -13,14 +17,19 @@ export const route: Route = {
     features: {
         requireConfig: false,
         requirePuppeteer: false,
-        antiCrawler: false,
+        antiCrawler: true,
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
     },
     radar: [
         {
+            source: ['www.dxy.cn/bbs/newweb/pc/profile/:userId/threads', 'www.dxy.cn/bbs/newweb/pc/profile/:userId'],
+            target: '/bbs/profile/thread/:userId',
+        },
+        {
             source: ['dxy.cn/bbs/newweb/pc/profile/:userId/threads', 'dxy.cn/bbs/newweb/pc/profile/:userId'],
+            target: '/bbs/profile/thread/:userId',
         },
     ],
     name: '个人帖子',
@@ -30,7 +39,7 @@ export const route: Route = {
 
 async function handler(ctx) {
     const userId = ctx.req.param('userId');
-    const { limit = '30' } = ctx.req.query();
+    const limit = String(getRouteLimit(ctx, 30));
 
     const userInfo = await cache.tryGet(`dxy:user-info:${userId}`, async () => {
         const userInfoParams = {
@@ -54,7 +63,7 @@ async function handler(ctx) {
     });
 
     const postList = await cache.tryGet(
-        `dxy:user:post:${userId}`,
+        `dxy:user:post:${userId}:${limit}`,
         async () => {
             const postListParams = {
                 userId,
@@ -95,7 +104,7 @@ async function handler(ctx) {
         };
     });
 
-    const items = await Promise.all(list.map((item) => getPost(item, cache.tryGet)));
+    const items = await pMap(list, (item) => getPost(item), { concurrency: 3 });
 
     return {
         title: `${userInfo.nickname} 的个人主页 - 丁香园论坛 - 专业医生社区，医学、药学、生命科学、科研学术交流`,

@@ -1,16 +1,21 @@
-import { Route } from '@/types';
+import pMap from 'p-map';
+
+import { config } from '@/config';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
-import { phoneBaseUrl, webBaseUrl, generateNonce, sign, getPost } from './utils';
-import { config } from '@/config';
-import { BoardInfo, PostListData } from './types';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import type { BoardInfo, PostListData } from './types';
+import { generateNonce, getPost, phoneBaseUrl, sign, webBaseUrl } from './utils';
 
 export const route: Route = {
     path: '/bbs/board/:boardId',
     categories: ['bbs'],
     example: '/dxy/bbs/board/46',
-    parameters: { specialId: '板块 ID，可在对应板块页 URL 中找到' },
+    parameters: { boardId: '板块 ID，可在对应板块页 URL 中找到' },
     name: '板块',
+    features: { antiCrawler: true },
     maintainers: ['TonyRL'],
     radar: [
         {
@@ -27,16 +32,16 @@ export const route: Route = {
 
 async function handler(ctx) {
     const { boardId } = ctx.req.param();
-    const { limit = '20' } = ctx.req.query();
+    const limit = String(getRouteLimit(ctx, 20));
 
-    const boardDetail = (await cache.tryGet(`dxy:board:detail:${boardId}`, async () => {
+    const boardDetail = await cache.tryGet(`dxy:board:detail:${boardId}`, async () => {
         const detailParams = {
             boardId,
             timestamp: Date.now(),
             noncestr: generateNonce(8, 'number'),
         };
 
-        const detail = await ofetch(`${phoneBaseUrl}/bbsapi/bbs/board/detail`, {
+        const detail = await ofetch<{ code: string; message: string; data: BoardInfo }>(`${phoneBaseUrl}/bbsapi/bbs/board/detail`, {
             query: {
                 ...detailParams,
                 sign: sign(detailParams),
@@ -46,10 +51,10 @@ async function handler(ctx) {
             throw new Error(detail.message);
         }
         return detail.data;
-    })) as BoardInfo;
+    });
 
-    const boardList = (await cache.tryGet(
-        `dxy:board:list:${boardId}`,
+    const boardList = await cache.tryGet(
+        `dxy:board:list:${boardId}:${limit}`,
         async () => {
             const listParams = {
                 boardId,
@@ -61,7 +66,7 @@ async function handler(ctx) {
                 noncestr: generateNonce(8, 'number'),
             };
 
-            const recommendList = await ofetch(`${phoneBaseUrl}/bbsapi/bbs/board/post/list`, {
+            const recommendList = await ofetch<{ code: string; message: string; data: PostListData }>(`${phoneBaseUrl}/bbsapi/bbs/board/post/list`, {
                 query: {
                     ...listParams,
                     sign: sign(listParams),
@@ -74,7 +79,7 @@ async function handler(ctx) {
         },
         config.cache.routeExpire,
         false
-    )) as PostListData;
+    );
 
     const list = boardList.result.map((item) => ({
         title: item.subject,
@@ -84,7 +89,7 @@ async function handler(ctx) {
         postId: item.postId,
     }));
 
-    const items = await Promise.all(list.map((item) => getPost(item, cache.tryGet)));
+    const items = await pMap(list, (item) => getPost(item), { concurrency: 3 });
 
     return {
         title: boardDetail.title,

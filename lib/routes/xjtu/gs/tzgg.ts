@@ -1,8 +1,12 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+
+class ArticleAccessError extends Error {}
 
 export const route: Route = {
     path: '/gs/tzgg',
@@ -37,29 +41,47 @@ async function handler() {
     const $ = load(response.data);
     const list = $('div.list_right_con ul li')
         .slice(0, 10)
-        .map((_, item) => {
-            item = $(item);
-            const a = item.find('a');
+        .toArray()
+        .map((item): DataItem => {
+            const $item = $(item);
+            const a = $item.find('a');
             return {
-                title: a.attr('title'),
-                link: new URL(a.attr('href'), 'http://gs.xjtu.edu.cn/').href,
-                pubDate: parseDate(item.find('span.time').text()),
+                title: a.attr('title')!,
+                link: new URL(a.attr('href')!, 'http://gs.xjtu.edu.cn/').href,
+                pubDate: parseDate($item.find('span.time').text()),
             };
-        })
-        .get();
+        });
 
     return {
         title: '西安交通大学研究生院 - 通知公告',
         link: rootUrl,
-        item: await Promise.all(
-            list.map((item) =>
-                cache.tryGet(item.link, async () => {
-                    const res = await got(item.link);
-                    const content = load(res.data);
-                    item.description = content('#vsb_content').html() + (content('form ul').length > 0 ? content('form ul').html() : '');
-                    return item;
-                })
-            )
+        item: await pMap(
+            list,
+            async (item) => {
+                try {
+                    const detail = await cache.tryGet(`xjtu:gs:content:v3:${item.link}`, async () => {
+                        const res = await got(item.link);
+                        const content = load(res.data);
+                        if (content('title').text() === 'Login - 西安交通大学统一身份认证网关' && content('form#fm1 input[name=password]').length === 1) {
+                            throw new ArticleAccessError(`Article authentication required at ${item.link}`);
+                        }
+                        const body = content('#vsb_content, #vsb_content_503').first();
+                        const article = body.html();
+                        if (!article?.trim()) {
+                            throw new Error(`Unable to find article content at ${item.link}`);
+                        }
+                        const description = article + (content('form ul').html() ?? '');
+                        return { description };
+                    });
+                    return { ...item, ...detail };
+                } catch (error) {
+                    if (error instanceof ArticleAccessError) {
+                        return item;
+                    }
+                    throw error;
+                }
+            },
+            { concurrency: 3, stopOnError: false }
         ),
     };
 }

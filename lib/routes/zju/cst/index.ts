@@ -1,10 +1,15 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import { FetchError } from 'ofetch';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
 const host = 'http://www.cst.zju.edu.cn/';
+
+class ArticleUnavailableError extends Error {}
 
 const map = new Map([
     [0, { id: '', title: '浙大软件学院-全部通知' }],
@@ -29,19 +34,14 @@ async function getPage(id) {
     const $ = load(res.data);
     const list = $('.lm_new').find('li');
 
-    return (
-        list &&
-        list
-            .map((index, item) => {
-                item = $(item);
-                return {
-                    title: item.find('a').text(),
-                    pubDate: parseDate(item.find('.fr').text()),
-                    link: new URL(item.find('a').attr('href'), host).href,
-                };
-            })
-            .get()
-    );
+    return list.toArray().map((item) => {
+        const $item = $(item);
+        return {
+            title: $item.find('a').text(),
+            pubDate: parseDate($item.find('.fr').text()),
+            link: new URL($item.find('a').attr('href')!, host).href,
+        };
+    });
 }
 
 export const route: Route = {
@@ -59,48 +59,55 @@ export const route: Route = {
     },
     name: '软件学院',
     description: `| 全部通知 | 招生信息 | 教务管理 | 论文管理 | 思政工作 | 评奖评优 | 实习就业 | 国际实习 | 国内合作科研 | 国际合作科研 | 校园服务 |
-  | -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | ------------ | ------------ | -------- |
-  | 0        | 1        | 2        | 3        | 4        | 5        | 6        | 7        | 8            | 9            | 10       |`,
+| -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | ------------ | ------------ | -------- |
+| 0        | 1        | 2        | 3        | 4        | 5        | 6        | 7        | 8            | 9            | 10       |`,
     maintainers: ['yonvenne', 'zwithz'],
     handler,
 };
 
 async function handler(ctx) {
     const type = Number.parseInt(ctx.req.param('type'));
-    const link = host + map.get(type).id;
-    let items = [];
+    const link = host + map.get(type)!.id;
+    let items: any[] = [];
     if (type === 0) {
-        const tasks = [];
-        for (const value of map.values()) {
-            tasks.push(getPage(value.id));
-        }
-        const results = await Promise.all(tasks);
-        for (const result of results) {
-            items = [...items, ...result];
-        }
+        const results = await pMap(map.values(), (value) => getPage(value.id), { concurrency: 3 });
+        items = results.flat();
     } else {
-        items = await getPage(map.get(type).id);
+        items = await getPage(map.get(type)!.id);
     }
 
-    const out = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
-                const response = await got({
-                    method: 'get',
-                    url: item.link,
-                    headers: {
-                        Referer: link,
-                    },
+    const out = await pMap(
+        items,
+        async (item) => {
+            try {
+                const description = await cache.tryGet(`zju:cst:details:v2:${item.link}`, async () => {
+                    const response = await got({
+                        method: 'get',
+                        url: item.link,
+                        headers: {
+                            Referer: link,
+                        },
+                    });
+                    const $ = load(response.data);
+                    const description = $(new URL(item.link).hostname === 'www.idi.zju.edu.cn' ? 'article.article-content' : '.vid_wz').html();
+                    if (!description) {
+                        throw new ArticleUnavailableError('Article content is unavailable at this source page.');
+                    }
+                    return description;
                 });
-                const $ = load(response.data);
-                item.description = $('.vid_wz').html();
+                return { ...item, description };
+            } catch (error) {
+                if (!(error instanceof ArticleUnavailableError || error instanceof FetchError)) {
+                    throw error;
+                }
                 return item;
-            })
-        )
+            }
+        },
+        { concurrency: 3 }
     );
 
     return {
-        title: map.get(type).title,
+        title: map.get(type)!.title,
         link,
         item: out,
     };

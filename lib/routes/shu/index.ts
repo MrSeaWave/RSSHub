@@ -1,7 +1,9 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map'; // cheerio@1.0.0
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio'; // cheerio@1.0.0
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
 
@@ -34,8 +36,8 @@ export const route: Route = {
     handler,
     url: 'www.shu.edu.cn/',
     description: `| 通知公告 | 重要新闻 |
-  | -------- | --------- |
-  | tzgg     | zyxw      |`,
+| -------- | -------- |
+| tzgg     | zyxw     |`,
 };
 
 async function handler(ctx) {
@@ -62,27 +64,30 @@ async function handler(ctx) {
             const item = $(el); // Wrap `el` in a Cheerio object
             const rawLink = item.find('a').attr('href');
             return {
-                title: item.find('p.bt').text().trim(),
+                title: item.find('p.bt').text(),
                 link: rawLink ? new URL(rawLink, rootUrl).href : rootUrl,
-                pubDate: timezone(parseDate(item.find('p.sj').text().trim(), 'YYYY.MM.DD'), +8),
-                description: item.find('p.zy').text().trim(),
+                pubDate: timezone(parseDate(item.find('p.sj').text(), 'YYYY.MM.DD'), 8),
+                description: item.find('p.zy').text(),
             };
         });
 
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
+    const items = await pMap(
+        list,
+        async (item) => {
+            const details = await cache.tryGet(`shu:shunews:v3:${item.link}`, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,
                 });
                 const content = load(detailResponse.data);
 
-                item.description = content('#vsb_content .v_news_content').html() || item.description;
+                item.description = content('#vsb_content .v_news_content, #vsb_content_500 .v_news_content').html() || item.description;
 
-                return item;
-            })
-        )
+                return { description: item.description };
+            });
+            return { ...item, ...details };
+        },
+        { concurrency: 3 }
     );
 
     return {

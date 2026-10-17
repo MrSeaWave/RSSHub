@@ -1,8 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import { parseDate } from '@/utils/parse-date';
+import { parseDateInTimezone } from '@/utils/parse-date-in-timezone';
 import { finishArticleItem } from '@/utils/wechat-mp';
 
 const host = 'https://www.ygb.sdu.edu.cn/';
@@ -38,9 +40,9 @@ export const route: Route = {
     name: '研工部',
     maintainers: ['kukeya'],
     handler,
-    description: `| 重要通知 | 管理服务 | 创新实践 | 
-  | -------- | -------- |-------- |
-  | zytz     | glfw     | cxsj    | `,
+    description: `| 重要通知 | 管理服务 | 创新实践 |
+| -------- | -------- | -------- |
+| zytz     | glfw     | cxsj     |`,
 };
 
 async function handler(ctx) {
@@ -52,21 +54,23 @@ async function handler(ctx) {
     const $ = load(response.data);
     let item = $('.zytz-list li')
         .toArray()
-        .map((e) => {
-            e = $(e);
-            const a = e.find('a');
-            const link = a.attr('href').startsWith('info/') || a.attr('href').startsWith('content') ? host + a.attr('href') : a.attr('href');
+        .map((e): DataItem => {
+            const $e = $(e);
+            const a = $e.find('a');
+            const link = a.attr('href')!.startsWith('info/') || a.attr('href')!.startsWith('content') ? host + a.attr('href') : a.attr('href');
             return {
-                title: a.text().trim(),
+                title: a.attr('title') || a.text(),
                 link,
-                pubDate: parseDate(e.find('b').text().trim().slice(1, -1), 'YYYY-MM-DD'),
+                pubDate: parseDateInTimezone($e.find('b').text().trim().slice(1, -1), 8),
             };
         });
 
-    item = await Promise.all(
-        item.map((item) =>
-            cache.tryGet(item.link, async () => {
-                const hostname = new URL(item.link).hostname;
+    item = await pMap(
+        item,
+        async (item) => ({
+            ...item,
+            ...(await cache.tryGet(`ygb:article-v2:${item.link}`, async () => {
+                const hostname = new URL(item.link!).hostname;
                 if (hostname === 'mp.weixin.qq.com') {
                     return finishArticleItem(item);
                 }
@@ -75,9 +79,10 @@ async function handler(ctx) {
 
                 item.description = $('.v_news_content').html();
 
-                return item;
-            })
-        )
+                return { description: item.description };
+            })),
+        }),
+        { concurrency: 3 }
     );
 
     return {

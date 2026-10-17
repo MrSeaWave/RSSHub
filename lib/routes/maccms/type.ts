@@ -5,11 +5,11 @@ export type Result = {
     pagecount: number;
     limit: string;
     total: number;
-    list: Array<Vod>;
-    class?: Array<Class>;
+    list: Vod[];
+    class?: Class[];
 };
 
-export type Class = {
+type Class = {
     type_id: number;
     type_pid: number;
     type_name: string;

@@ -1,8 +1,9 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
-import { BoardsFeedResource, UserActivityPinsResource, UserProfile } from './types';
+
+import type { BoardsFeedResource, UserActivityPinsResource, UserProfile } from './types';
 
 export const route: Route = {
     path: '/user/:username/:type?',
@@ -21,8 +22,16 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['www.pinterest.com/:id/:type?', 'www.pinterest.com/:id'],
-            target: '/user/:id/:type?',
+            source: ['www.pinterest.com/:username/_created'],
+            target: '/user/:username/_created',
+        },
+        {
+            source: ['www.pinterest.com/:username/_saved'],
+            target: '/user/:username/_saved',
+        },
+        {
+            source: ['www.pinterest.com/:username'],
+            target: '/user/:username',
         },
     ],
     name: 'User',
@@ -32,15 +41,20 @@ export const route: Route = {
 
 const baseUrl = 'https://www.pinterest.com';
 
+interface Resource<T> {
+    resource_response: {
+        data: T;
+    };
+}
+
 async function handler(ctx) {
     const { username, type = '_created' } = ctx.req.param();
 
     const profile = await getUserResource(username);
-    const response = type === '_created' ? await getUserActivityPinsResource(username, profile.id) : await getBoardsFeedResource(username);
 
     const items =
         type === '_created'
-            ? (response as UserActivityPinsResource[]).map((item) => ({
+            ? (await getUserActivityPinsResource(username, profile.id)).map((item) => ({
                   title: item.title || item.seo_title,
                   description: `${item.grid_description}<br><img src="${item.images.orig.url}">`,
                   link: `${baseUrl}${item.seo_url}`,
@@ -48,7 +62,7 @@ async function handler(ctx) {
                   pubDate: parseDate(item.created_at),
                   image: item.images.orig.url,
               }))
-            : (response as BoardsFeedResource[]).map((item) => ({
+            : (await getBoardsFeedResource(username)).map((item) => ({
                   title: item.name,
                   description: item.description + (item.images?.['170x'] ? '<br>' + item.images['170x'].map((img) => `<img src="${img.url}">`).join('') : ''),
                   link: `${baseUrl}${item.url}`,
@@ -68,7 +82,10 @@ async function handler(ctx) {
 
 const getUserResource = (username: string) =>
     cache.tryGet(`pinterest:user:${username}`, async () => {
-        const response = await ofetch(`${baseUrl}/resource/UserResource/get/`, {
+        const response = await ofetch<Resource<UserProfile>>(`${baseUrl}/resource/UserResource/get/`, {
+            headers: {
+                'x-pinterest-pws-handler': 'www/[username]/_created.js',
+            },
             query: {
                 source_url: `/${username}/_created`,
                 data: JSON.stringify({ options: { username, field_set_key: 'unauth_profile' }, context: {} }),
@@ -77,10 +94,13 @@ const getUserResource = (username: string) =>
         });
 
         return response.resource_response.data;
-    }) as Promise<UserProfile>;
+    });
 
 const getUserActivityPinsResource = async (username: string, userId: string) => {
-    const response = await ofetch(`${baseUrl}/resource/UserActivityPinsResource/get/`, {
+    const response = await ofetch<Resource<UserActivityPinsResource[]>>(`${baseUrl}/resource/UserActivityPinsResource/get/`, {
+        headers: {
+            'x-pinterest-pws-handler': 'www/[username]/_created.js',
+        },
         query: {
             source_url: `/${username}/_created`,
             data: JSON.stringify({ options: { exclude_add_pin_rep: true, field_set_key: 'grid_item', is_own_profile_pins: false, user_id: userId, username }, context: {} }),
@@ -88,11 +108,14 @@ const getUserActivityPinsResource = async (username: string, userId: string) => 
         },
     });
 
-    return response.resource_response.data as UserActivityPinsResource[];
+    return response.resource_response.data;
 };
 
 const getBoardsFeedResource = async (username: string) => {
-    const response = await ofetch(`${baseUrl}/resource/BoardsFeedResource/get/`, {
+    const response = await ofetch<Resource<BoardsFeedResource[]>>(`${baseUrl}/resource/BoardsFeedResource/get/`, {
+        headers: {
+            'x-pinterest-pws-handler': 'www/[username]/_saved.js',
+        },
         query: {
             source_url: `/${username}/_saved`,
             data: JSON.stringify({ options: { field_set_key: 'profile_grid_item', filter_stories: false, sort: 'last_pinned_to', username }, context: {} }),
@@ -100,5 +123,5 @@ const getBoardsFeedResource = async (username: string) => {
         },
     });
 
-    return (response.resource_response.data as BoardsFeedResource[]).filter((item) => item.node_id);
+    return response.resource_response.data.filter((item) => item.node_id);
 };

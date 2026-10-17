@@ -1,19 +1,23 @@
-import { Route } from '@/types';
+import pMap from 'p-map';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 import { finishArticleItem } from '@/utils/wechat-mp';
+
 const rootUrl = 'http://job.hrbeu.edu.cn';
 
 const idMap = {
     tzgg: {
         name: '通知公告',
-        url: 'http://job.hrbeu.edu.cn/HrbeuJY/Web/Home/NewsList?43kuJdqqW6kyCmomBv0smMlyGfDy8QefMwSyc-jK8Ww=.shtml',
+        url: 'http://job.hrbeu.edu.cn/frontpage/hrbeu/html/newsList.html?id=00160103',
     },
     rdxw: {
         name: '热点新闻',
-        url: 'http://job.hrbeu.edu.cn/HrbeuJY/Web/Home/NewsList?43kuJdqqW6kyCmomBv0smLeM5XMyxaJMXP0thrbMBWI=.shtml',
+        url: 'http://job.hrbeu.edu.cn/frontpage/hrbeu/html/newsList.html?id=00160102',
     },
 };
 
@@ -33,56 +37,64 @@ export const route: Route = {
     name: '就业服务平台',
     maintainers: ['Derekmini'],
     description: `| 通知公告 | 热点新闻 |
-    | :------: | :------: |
-    |   tzgg   |   rdxw   |`,
+| :------: | :------: |
+|   tzgg   |   rdxw   |`,
     handler,
+};
+
+type NewsItem = {
+    id: string;
+    title: string;
+    url: string;
+    isExternalLink: boolean;
+    releaseDate?: string;
+    updateDate?: string;
+    description?: string;
+    publisher?: string;
 };
 
 async function handler(ctx) {
     const id = ctx.req.param('id');
-
-    const response = await got(idMap[id].url, {
-        headers: {
-            Referer: rootUrl,
-        },
+    if (!Object.hasOwn(idMap, id)) {
+        throw new InvalidParameterError('Invalid id: expected tzgg or rdxw.');
+    }
+    const link = idMap[id].url;
+    const { data } = await got.post(`${rootUrl}/f/newsCenter/ajax_thisNewsAndSiblingCategoryList`, {
+        form: { categoryId: new URL(link).searchParams.get('id'), pageNo: 1, pageSize: 10 },
     });
-
-    const $ = load(response.data);
-
-    const list = $('li.list_item.i1')
-        .map((_, item) => {
-            let link = $(item).find('a').attr('href');
-            if (link.includes('HrbeuJY')) {
-                link = `${rootUrl}${link}`;
-            }
-            return {
-                title: $(item).find('a').attr('title'),
-                pubDate: parseDate($(item).find('.Article_PublishDate').text()),
-                link,
-            };
-        })
-        .get();
-
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
-                if (item.link.includes('HrbeuJY')) {
-                    const detailResponse = await got(item.link);
-                    const content = load(detailResponse.data);
-                    item.description = content('.article').html();
-                } else if (new URL(item.link).hostname === 'mp.weixin.qq.com') {
-                    await finishArticleItem(item);
-                } else {
-                    item.description = '本文需跳转，请点击标题后阅读';
+    if (data.state !== 1) {
+        throw new Error(`The employment website returned an error: ${data.msg}`);
+    }
+    const list: NewsItem[] = data.object.newsPage.list;
+    const items = await pMap(
+        list,
+        (item) =>
+            cache.tryGet(`hrbeu:job:${item.id}`, async (): Promise<DataItem> => {
+                const result: DataItem = {
+                    title: item.title,
+                    link: new URL(item.url, rootUrl).href,
+                    guid: item.id,
+                    pubDate: item.releaseDate ? timezone(parseDate(item.releaseDate), 8) : undefined,
+                    updated: item.updateDate ? timezone(parseDate(item.updateDate), 8) : undefined,
+                    author: item.publisher,
+                    description: item.description,
+                };
+                if (!item.isExternalLink) {
+                    const { data: detail } = await got(`${rootUrl}/f/newsCenter/ajax_view?id=${item.id}`);
+                    if (detail.state !== 1) {
+                        throw new Error(`The employment website could not load article ${item.id}: ${detail.msg}`);
+                    }
+                    result.description = detail.object.article.articleData.content;
+                } else if (new URL(result.link!).hostname === 'mp.weixin.qq.com') {
+                    await finishArticleItem(result);
                 }
-                return item;
-            })
-        )
+                return result;
+            }),
+        { concurrency: 3 }
     );
-
     return {
         title: '就业服务平台-' + idMap[id].name,
-        link: idMap[id].url,
+        link,
         item: items,
     };
 }

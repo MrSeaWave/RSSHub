@@ -1,36 +1,46 @@
-import { Route, ViewType } from '@/types';
 import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Data, Route } from '@/types';
+import { ViewType } from '@/types';
 import ofetch from '@/utils/ofetch';
 import rssParser from '@/utils/rss-parser';
-import { asyncPoolAll, parseArticle } from './utils';
+
+import { parseArticle } from './utils';
 
 const parseAuthorNewsList = async (slug) => {
     const baseURL = `https://www.bloomberg.com/authors/${slug}`;
     const apiUrl = `https://www.bloomberg.com/lineup/api/lazy_load_author_stories?slug=${slug}&authorType=default&page=1`;
-    const resp = await ofetch(apiUrl);
+    let resp;
+    try {
+        resp = await ofetch(apiUrl);
+    } catch (error) {
+        if (error instanceof Error && error.name === 'FetchError') {
+            return [];
+        }
+        throw error;
+    }
     // Likely rate limited
-    if (!resp.html) {
+    if (!resp?.html) {
         return [];
     }
     const $ = load(resp.html);
     const articles = $('article.story-list-story');
-    return articles
-        .map((index, item) => {
-            item = $(item);
-            const headline = item.find('a.story-list-story__info__headline-link');
-            return {
-                title: headline.text(),
-                pubDate: item.attr('data-updated-at'),
-                guid: `bloomberg:${item.attr('data-id')}`,
-                link: new URL(headline.attr('href'), baseURL).href,
-            };
-        })
-        .get();
+    return articles.toArray().map((item) => {
+        const $item = $(item);
+        const headline = $item.find('a.story-list-story__info__headline-link');
+        return {
+            title: headline.text(),
+            pubDate: $item.attr('data-updated-at'),
+            guid: `bloomberg:${$item.attr('data-id')}`,
+            link: new URL(headline.attr('href')!, baseURL).href,
+        };
+    });
 };
 
 export const route: Route = {
     path: '/authors/:id/:slug/:source?',
-    categories: ['finance', 'popular'],
+    categories: ['finance'],
     view: ViewType.Articles,
     example: '/bloomberg/authors/ARbTQlRLRjE/matthew-s-levine',
     parameters: { id: 'Author ID, can be found in URL', slug: 'Author Slug, can be found in URL', source: 'Data source, either `api` or `rss`,`api` by default' },
@@ -53,11 +63,11 @@ export const route: Route = {
     handler,
 };
 
-async function handler(ctx) {
+async function handler(ctx): Promise<Data> {
     const { id, slug, source } = ctx.req.param();
     const link = `https://www.bloomberg.com/authors/${id}/${slug}`;
 
-    let list = [];
+    let list: any[] = [];
     if (!source || source === 'api') {
         list = await parseAuthorNewsList(`${id}/${slug}`);
     }
@@ -65,8 +75,7 @@ async function handler(ctx) {
     if (source === 'rss' || list.length === 0) {
         list = (await rssParser.parseURL(`${link}.rss`)).items;
     }
-
-    const item = await asyncPoolAll(1, list, (item) => parseArticle(item));
+    const item = await pMap(list, (item) => parseArticle(item), { concurrency: 1 });
     const authorName = item.find((i) => i.author)?.author ?? slug;
 
     return {

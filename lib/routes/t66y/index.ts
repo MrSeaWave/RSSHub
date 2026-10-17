@@ -1,8 +1,11 @@
-import { Route } from '@/types';
-import * as cheerio from 'cheerio';
-import got from '@/utils/got';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+
 import { baseUrl, parseContent } from './utils';
 
 export const route: Route = {
@@ -17,31 +20,32 @@ export const route: Route = {
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
+        nsfw: true,
     },
     name: '分区帖子',
     maintainers: ['zhboner'],
     handler,
     description: `> 注意：并非所有的分区都有子类型，可以参考成人文学交流区的 \`古典武侠\` 这一子类型。
 
-  | 亚洲无码原创区 | 亚洲有码原创区 | 欧美原创区 | 动漫原创区 | 国产原创区 |
-  | -------------- | -------------- | ---------- | ---------- | ---------- |
-  | 2              | 15             | 4          | 5          | 25         |
+| 亚洲无码原创区 | 亚洲有码原创区 | 欧美原创区 | 动漫原创区 | 国产原创区 |
+| -------------- | -------------- | ---------- | ---------- | ---------- |
+| 2              | 15             | 4          | 5          | 25         |
 
-  | 中字原创区 | 转帖交流区 | HTTP 下载区 | 在线成人区 |
-  | ---------- | ---------- | ----------- | ---------- |
-  | 26         | 27         | 21          | 22         |
+| 中字原创区 | 转帖交流区 | HTTP 下载区 | 在线成人区 |
+| ---------- | ---------- | ----------- | ---------- |
+| 26         | 27         | 21          | 22         |
 
-  | 技术讨论区 | 新时代的我们 | 达盖尔的旗帜 | 成人文学交流 |
-  | ---------- | ------------ | ------------ | ------------ |
-  | 7          | 8            | 16           | 20           |
+| 技术讨论区 | 新时代的我们 | 达盖尔的旗帜 | 成人文学交流 |
+| ---------- | ------------ | ------------ | ------------ |
+| 7          | 8            | 16           | 20           |
 
-  **主题过滤**
+**主题过滤**
 
-  > 因为该类型无法搭配子类型使用，所以使用时 \`type\` 子类型需使用 \`-999\` 占位
+> 因为该类型无法搭配子类型使用，所以使用时 \`type\` 子类型需使用 \`-999\` 占位
 
-  | 今日主题 | 热门主题 | 精华主题 | 原创主题 | 今日新作  |
-  | ------- | ------- | ------- | ------- | ------ |
-  | today   | hot     | digest  | 1       | 2      |`,
+| 今日主题 | 热门主题 | 精华主题 | 原创主题 | 今日新作 |
+| -------- | -------- | -------- | -------- | -------- |
+| today    | hot      | digest   | 1        | 2        |`,
 };
 
 const SEARCH_NAMES = {
@@ -64,11 +68,11 @@ async function handler(ctx) {
     isValidType && url.searchParams.set('type', type);
 
     const { data: res } = await got(url);
-    const $ = cheerio.load(res);
+    const $ = load(res);
     const list = $('#ajaxtable > tbody:nth-child(2) .tr3')
         .not('.tr2.tac')
         .toArray()
-        .map((item) => {
+        .flatMap((item): DataItem[] => {
             const element = $(item);
 
             const tal = element.find('.tal');
@@ -78,32 +82,37 @@ async function handler(ctx) {
                 .text()
                 .trim();
             const a = tal.find('h3 a');
+            const href = a.attr('href');
+            if (!href) {
+                return [];
+            }
             const td3 = element.find('td:nth-child(3)');
 
-            return {
-                title: `${catalog} ${a.text()}`,
-                link: `${baseUrl}/${a.attr('href')}`,
-                author: td3.find('a').text(),
-                pubDate: parseDate(String(td3.find('span[data-timestamp]').data('timestamp')).slice(0, -1), 'X'),
-            };
+            return [
+                {
+                    title: `${catalog} ${a.text()}`,
+                    link: new URL(href, baseUrl).href,
+                    author: td3.find('a').text(),
+                    pubDate: parseDate(String(td3.find('span[data-timestamp]').data('timestamp')).slice(0, -1), 'X'),
+                },
+            ];
         });
 
-    const out = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
+    const out = await pMap(
+        list,
+        async (item) => {
+            const description = await cache.tryGet(`${item.link}:body:v2`, async () => {
                 const { data: response } = await got(item.link);
-
-                item.description = parseContent(response);
-
-                return item;
-            })
-        )
+                return parseContent(response);
+            });
+            return { ...item, description };
+        },
+        { concurrency: 3 }
     );
 
     return {
         title: (isValidType ? `[${$('.t .fn b').text()}] ` : '') + (search ? `[${SEARCH_NAMES[search]}] ` : '') + $('head title').text(),
         link: url.href,
         item: out,
-        allowEmpty: true,
     };
 }

@@ -1,9 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
 import { parseDate, parseRelativeDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/:params?',
@@ -29,7 +31,7 @@ export const route: Route = {
     handler,
     description: `如 [Elasticsearch 最新](https://elasticsearch.cn/category-2) 的 URL 为 \`https://elasticsearch.cn/category-2\`，则分类参数处填写 \`category-2\`，最后得到路由地址 [\`/elasticsearch-cn/category-2\`](https://rsshub.app/elasticsearch-cn/category-2)。
 
-  又如 [求职招聘 30 天热门](https://elasticsearch.cn/sort_type-hot____category-12__day-30) 的 URL 为 \`https://elasticsearch.cn/sort_type-hot____category-12__day-30\`，则分类参数处填写 \`sort_type-hot____category-12__day-30\`，最后得到路由地址 [\`/elasticsearch-cn/sort_type-hot____category-12__day-30\`](https://rsshub.app/elasticsearch-cn/sort_type-hot____category-12__day-30)。`,
+又如 [求职招聘 30 天热门](https://elasticsearch.cn/sort_type-hot____category-12__day-30) 的 URL 为 \`https://elasticsearch.cn/sort_type-hot____category-12__day-30\`，则分类参数处填写 \`sort_type-hot____category-12__day-30\`，最后得到路由地址 [\`/elasticsearch-cn/sort_type-hot____category-12__day-30\`](https://rsshub.app/elasticsearch-cn/sort_type-hot____category-12__day-30)。`,
 };
 
 async function handler(ctx) {
@@ -47,23 +49,25 @@ async function handler(ctx) {
 
     let items = $('.aw-question-content')
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
-            const a = item.find('h4 a');
-            const pubDate = item.find('span.text-color-999').not('.pull-right').first().text().split('•').pop().trim();
+            const a = $item.find('h4 a');
+            const pubDate = $item.find('span.text-color-999').not('.pull-right').first().text().split('•').pop()!.trim();
 
             return {
                 title: a.text(),
                 link: a.attr('href'),
-                author: item.find('.aw-user-name').text(),
-                pubDate: timezone(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(pubDate) ? parseDate(pubDate) : parseRelativeDate(pubDate), +8),
+                author: $item.find('.aw-user-name').text(),
+                pubDate: pubDate ? (/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(pubDate) ? timezone(parseDate(pubDate), 8) : parseRelativeDate(pubDate)) : undefined,
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
+    items = await pMap(
+        items,
+        async (item) => ({
+            ...item,
+            ...(await cache.tryGet(`elasticsearch-cn:content:${item.link}`, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,
@@ -71,11 +75,16 @@ async function handler(ctx) {
 
                 const content = load(detailResponse.data);
 
-                item.description = content('.markitup-box').first().html();
-
-                return item;
-            })
-        )
+                const article = content('.markitup-box').first();
+                const category = article
+                    .find('.aw-topic-bar a.text')
+                    .toArray()
+                    .map((element) => content(element).text().trim());
+                article.find('.aw-topic-bar').remove();
+                return { description: article.html() ?? undefined, category };
+            })),
+        }),
+        { concurrency: 3 }
     );
 
     return {

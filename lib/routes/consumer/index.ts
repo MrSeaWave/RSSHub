@@ -1,8 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/:category?/:language?/:keyword?',
@@ -28,15 +30,15 @@ export const route: Route = {
     url: 'consumer.org.hk/',
     description: `分类
 
-  | 测试及调查 | 生活资讯 | 投诉实录  | 议题评论 |
-  | ---------- | -------- | --------- | -------- |
-  | test       | life     | complaint | topic    |
+| 测试及调查 | 生活资讯 | 投诉实录  | 议题评论 |
+| ---------- | -------- | --------- | -------- |
+| test       | life     | complaint | topic    |
 
-  语言
+语言
 
-  | 简体中文 | 繁体中文 |
-  | -------- | -------- |
-  | sc       | tc       |`,
+| 简体中文 | 繁体中文 |
+| -------- | -------- |
+| sc       | tc       |`,
 };
 
 async function handler(ctx) {
@@ -45,7 +47,10 @@ async function handler(ctx) {
     const keyword = ctx.req.param('keyword') ?? '';
 
     const rootUrl = 'https://www.consumer.org.hk';
-    const currentUrl = `${rootUrl}/${language}/free-article/free-article-${category}?category=free-article-${category}&q=${keyword}`;
+    const isComplaint = category === 'complaint';
+    const currentUrl = isComplaint
+        ? `${rootUrl}/${language}/complaints-and-services/complaint-record?q=${encodeURIComponent(keyword)}`
+        : `${rootUrl}/${language}/free-article/free-article-${category}?category=free-article-${category}&q=${encodeURIComponent(keyword)}`;
 
     const response = await got({
         method: 'get',
@@ -54,18 +59,17 @@ async function handler(ctx) {
 
     const $ = load(response.data);
 
-    let items = $('.half-img-blk__title, .img-plate-blk__title')
-        .find('a')
-        .toArray()
-        .map((item) => {
-            item = $(item);
+    const articleLinks = isComplaint ? $('.minor-extend-side-img-blk__main > a, a.img-plate-blk') : $('.half-img-blk__title, .img-plate-blk__title').find('a');
+    let items = articleLinks.toArray().map((item): DataItem & { link: string } => {
+        const $item = $(item);
+        const publishedAt = (isComplaint ? ($item.find('.item-info').length ? $item.find('.item-info') : $item.prev('.item-info')) : $item.parent().prev()).find('li').first().text();
 
-            return {
-                title: item.text(),
-                link: `${rootUrl}${item.attr('href')}`,
-                pubDate: parseDate(item.parent().prev().find('li').first().text(), 'YYYY.MM'),
-            };
-        });
+        return {
+            title: isComplaint ? $item.find('h2, .img-plate-blk__title').text() : $item.text(),
+            link: new URL($item.attr('href')!, rootUrl).href,
+            pubDate: publishedAt ? timezone(parseDate(publishedAt, 'YYYY.MM'), 8) : undefined,
+        };
+    });
 
     items = await Promise.all(
         items.map((item) =>
@@ -77,7 +81,10 @@ async function handler(ctx) {
 
                 const content = load(detailResponse.data);
 
-                item.description = content('.ckec').html();
+                item.description = (isComplaint ? content('main .ckec') : content('.ckec').first())
+                    .toArray()
+                    .map((element) => content(element).html())
+                    .join('');
 
                 return item;
             })
@@ -87,6 +94,7 @@ async function handler(ctx) {
     return {
         title: $('title').text(),
         link: currentUrl,
+        language: ($('html').attr('lang') ?? (language === 'tc' ? 'zh-HK' : 'zh-CN')) as Language,
         item: items,
     };
 }

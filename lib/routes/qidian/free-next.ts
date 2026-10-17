@@ -1,6 +1,8 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
+import { PRESETS } from '@/utils/header-generator';
 
 export const route: Route = {
     path: '/free-next/:type?',
@@ -10,7 +12,7 @@ export const route: Route = {
     features: {
         requireConfig: false,
         requirePuppeteer: false,
-        antiCrawler: false,
+        antiCrawler: true,
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
@@ -18,11 +20,11 @@ export const route: Route = {
     radar: [
         {
             source: ['www.qidian.com/free'],
-            target: '/free',
+            target: '/free-next',
         },
     ],
     name: '限时免费下期预告',
-    maintainers: ['LogicJake'],
+    maintainers: ['LogicJake', 'pseudoyu'],
     handler,
     url: 'www.qidian.com/free',
 };
@@ -30,39 +32,34 @@ export const route: Route = {
 async function handler(ctx) {
     const type = ctx.req.param('type');
 
-    let link, title;
-    if (type === 'mm') {
-        link = 'https://www.qidian.com/mm/free';
-        title = '起点女生网';
-    } else {
-        link = 'https://www.qidian.com/free';
-        title = '起点中文网';
+    const isMM = type === 'mm';
+    const link = isMM ? 'https://www.qidian.com/mm/free' : 'https://www.qidian.com/free';
+    const title = isMM ? '起点女生网' : '起点中文网';
+
+    // Reason: PC site (www.qidian.com) returns anti-bot JS challenge; mobile site has SSR data
+    const response = await got(`https://m.qidian.com/free${isMM ? '/female/' : ''}`, { headerGeneratorOptions: PRESETS.MODERN_IOS });
+    const $ = load(response.data);
+    const pageContextText = $('#vite-plugin-ssr_pageContext').text();
+    if (!pageContextText) {
+        throw new Error('The official free-books page did not return public book data.');
+    }
+    const { pageContext } = JSON.parse(pageContextText);
+    const pageData = pageContext.pageProps.pageData;
+    if (isMM && pageData.gender !== 'female') {
+        throw new Error('The official female free-books page did not return female book data.');
     }
 
-    const response = await got(link);
-    const $ = load(response.data);
-
-    const list = $('div.other-rec-wrap li');
-    const out = list
-        .map((index, item) => {
-            item = $(item);
-
-            const img = `<img src="https:${item.find('.img-box img').attr('src')}">`;
-            const rank = `<p>评分：${item.find('.img-box span').text()}</p>`;
-
-            return {
-                title: item.find('.book-info h4 a').text(),
-                description: img + rank + item.find('p.intro').html(),
-                link: 'https:' + item.find('.book-info h4 a').attr('href'),
-                author: item.find('p.author a').text(),
-            };
-        })
-        .get();
+    const items = (pageData.nxtFree || []).map((book) => ({
+        title: book.bName,
+        link: `https://book.qidian.com/info/${book.bid}/`,
+        author: book.bAuth,
+        description: `评分：${book.score === -1 ? '暂无' : book.score}`,
+    }));
 
     return {
         title,
         description: `限时免费下期预告-${title}`,
         link,
-        item: out,
+        item: items,
     };
 }

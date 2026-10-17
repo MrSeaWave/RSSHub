@@ -1,7 +1,8 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
-import utils from './utils';
 import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
+import got from '@/utils/got';
+
+import utils from './utils';
 
 export const route: Route = {
     path: '/huati/:tag',
@@ -29,13 +30,17 @@ export const route: Route = {
 
 async function handler(ctx) {
     const tag = ctx.req.param('tag');
-    const full_url = utils.base_url + `/v6/page/dataList?url=%23%2Ffeed%2FmultiTagFeedList%3FlistType%3Ddateline_desc%26tag=${tag}&title=%E6%9C%80%E6%96%B0%E5%8F%91%E5%B8%83&subTitle=&page=1`;
-    const response = await got(full_url, {
+    const fullUrl = new URL('/v6/page/dataList', utils.base_url);
+    fullUrl.searchParams.set('url', `#/feed/multiTagFeedList?${new URLSearchParams({ listType: 'dateline_desc', tag }).toString()}`);
+    fullUrl.searchParams.set('title', '最新发布');
+    fullUrl.searchParams.set('subTitle', '');
+    fullUrl.searchParams.set('page', '1');
+    const response = await got(fullUrl, {
         headers: utils.getHeaders(),
     });
     const data = response.data.data;
 
-    let out = await Promise.all(data.map((item) => utils.parseDynamic(item)));
+    let out = await Promise.all(utils.selectDynamics(data).map((item) => utils.parseDynamic(item)));
 
     out = out.filter(Boolean); // 去除空值
     if (out.length === 0) {
@@ -43,7 +48,7 @@ async function handler(ctx) {
     }
     return {
         title: `酷安话题-${tag}`,
-        link: `https://www.coolapk.com/`,
+        link: 'https://www.coolapk.com/',
         description: `酷安话题-${tag}`,
         item: out,
     };
