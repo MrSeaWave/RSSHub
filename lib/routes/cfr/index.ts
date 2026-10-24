@@ -1,8 +1,11 @@
-import type { Data, Route } from '@/types';
-import type { Context } from 'hono';
-import ofetch from '@/utils/ofetch';
 import { load } from 'cheerio';
-import { asyncPoolAll, getDataItem } from './utils';
+import type { Context } from 'hono';
+import pMap from 'p-map';
+
+import type { Data, Route } from '@/types';
+import ofetch from '@/utils/ofetch';
+
+import { getDataItem } from './utils';
 
 export const route: Route = {
     path: '/:category/:subCategory?',
@@ -38,17 +41,19 @@ async function handler(ctx: Context): Promise<Data> {
 
     const $ = load(res);
 
-    const selectorMap: {
-        [key: string]: string;
-    } = {
-        podcasts: '.episode-content__title a',
-        blog: '.card-series__content-link',
-        'books-reports': '.card-article__link',
-    };
+    const selectorMap = new Map([
+        ['podcasts', '.episode-content__title a'],
+        ['blog', '.card-series__content-link'],
+        ['books-reports', '.card-article__link'],
+    ]);
 
-    const listSelector = selectorMap[category] ?? '.card-article-large__link';
+    const listSelector = selectorMap.get(category) ?? '.card-article-large__link';
 
-    const items = await asyncPoolAll(5, $(listSelector).toArray(), async (item) => await getDataItem($(item).attr('href')!));
+    const legacyLinks = $(listSelector);
+    const links = legacyLinks.length ? legacyLinks : $('main article h3 a[href]');
+    const hrefs = [...new Set(links.toArray().map((item) => $(item).attr('href')!))];
+    const selected = hrefs;
+    const items = await pMap(selected, (href) => getDataItem(href), { concurrency: 5 });
 
     return {
         title: $('head title').text().replace(' | Council on Foreign Relations', ''),

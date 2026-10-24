@@ -1,5 +1,7 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
+import { html } from 'hono/html';
+
+import NotFoundError from '@/errors/types/not-found';
+import type { Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 
@@ -17,7 +19,7 @@ const titles = {
 
 export const route: Route = {
     path: '/news/:caty?',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/chaping/news/15',
     parameters: { caty: '分类，默认为全部资讯' },
     features: {
@@ -32,19 +34,31 @@ export const route: Route = {
     maintainers: ['nczitzk'],
     handler,
     description: `| 编号 | 分类       |
-  | ---- | ---------- |
-  | 15   | 直播       |
-  | 3    | 科技新鲜事 |
-  | 7    | 互联网槽点 |
-  | 5    | 趣味科技   |
-  | 6    | DEBUG TIME |
-  | 1    | 游戏       |
-  | 8    | 视频       |
-  | 9    | 公里每小时 |`,
+| ---- | ---------- |
+| 15   | 直播       |
+| 3    | 科技新鲜事 |
+| 7    | 互联网槽点 |
+| 5    | 趣味科技   |
+| 6    | DEBUG TIME |
+| 1    | 游戏       |
+| 8    | 视频       |
+| 9    | 公里每小时 |`,
 };
+
+function getDescription(item) {
+    if (item.type === 'live') {
+        const caption = html`<p>${item.summary}</p>`;
+        const video = html`<video controls src="${item.content}" poster="${item.images.url}"></video>`;
+        return `${caption}${video}`;
+    }
+    return item.content;
+}
 
 async function handler(ctx) {
     const caty = ctx.req.param('caty') ?? '';
+    if (!Object.hasOwn(titles, caty || '0')) {
+        throw new NotFoundError(`Invalid category. Supported categories: ${Object.keys(titles).join(', ')}.`);
+    }
 
     const targetUrl = `https://chaping.cn/news?cate=${caty}`;
     const currentUrl = `https://chaping.cn/api/official/information/news?page=1&limit=16&cate=${caty}`;
@@ -57,27 +71,12 @@ async function handler(ctx) {
         title: item.title,
         link: `https://chaping.cn/news/${item.id}`,
         pubDate: parseDate(item.time_publish_timestamp * 1000),
+        description: getDescription(item),
     }));
 
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
-                const detailResponse = await got({
-                    method: 'get',
-                    url: item.link,
-                });
-                const content = JSON.parse(detailResponse.data.match(/"current":(.*?),"optionsList":/)[1]);
-
-                item.description = content.content;
-
-                return item;
-            })
-        )
-    );
-
     return {
-        title: `差评资讯 - ${titles[ctx.req.param('caty') === '' ? 0 : ctx.req.param('caty')]}`,
+        title: `差评资讯 - ${titles[caty || '0']}`,
         link: targetUrl,
-        item: items,
+        item: list,
     };
 }

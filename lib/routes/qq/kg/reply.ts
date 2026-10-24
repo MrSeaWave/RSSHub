@@ -1,6 +1,7 @@
-import { Route } from '@/types';
-import cache from './cache';
+import type { Route } from '@/types';
 import { parseDate } from '@/utils/parse-date';
+
+import cache from './cache';
 
 export const route: Route = {
     path: '/kg/reply/:playId',
@@ -15,7 +16,7 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    name: '用户作品评论动态',
+    name: '全民K歌 - 用户作品评论动态',
     maintainers: ['zhangxiang012'],
     handler,
 };
@@ -29,7 +30,6 @@ async function handler(ctx) {
         title: `${play_item.name} - ${play_item.author} 的评论`,
         link: url,
         image: play_item.itunes_item_image,
-        allowEmpty: true,
         item: play_item.comments.map((item) => ({
             title: `${item.nick}：${item.content}`,
             pubDate: parseDate(item.ctime * 1000),

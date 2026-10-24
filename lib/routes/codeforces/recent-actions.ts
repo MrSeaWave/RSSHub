@@ -1,6 +1,7 @@
-import { Route } from '@/types';
-import ofetch from '@/utils/ofetch';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import ofetch from '@/utils/ofetch';
 
 export const route: Route = {
     path: '/recent-actions/:minrating?',
@@ -22,7 +23,7 @@ export const route: Route = {
         },
     ],
     name: 'Recent actions',
-    maintainers: [],
+    maintainers: ['ftiasch'],
     handler,
     url: 'codeforces.com/recent-actions',
 };
@@ -51,7 +52,6 @@ async function handler(ctx) {
         }
         return {
             title: `@${blog.authorHandle} posted "${blogTitle}"`,
-            description: blogTitle,
             pubDate,
             link: `https://codeforces.com/blog/entry/${blogId}`,
             rating: blog.rating,

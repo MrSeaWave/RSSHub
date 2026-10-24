@@ -1,8 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 const host = 'https://yz.chsi.com.cn';
 
@@ -40,25 +42,27 @@ async function handler() {
             let itemUrl = '';
             itemUrl = path.startsWith('http') ? path : host + path;
             return cache.tryGet(itemUrl, async () => {
-                let description = '';
+                let description: string;
                 let itemDate;
                 if (path) {
                     const result = await got(itemUrl);
                     const $ = load(result.data);
-                    description = $('#article_dnull').html() ? $('#article_dnull').html().trim() : itemTitle;
-                    if ($('.news-time').text()) {
-                        itemDate = $('.news-time').text();
-                    }
+                    description = $('#article_dnull').html() ? $('#article_dnull').html()!.trim() : itemTitle;
+                    itemDate =
+                        $('.news-time').text() ||
+                        $('.news-msg')
+                            .text()
+                            .match(/\d{4}年\d{2}月\d{2}日/)?.[0];
                 } else {
                     description = itemTitle;
                 }
-                const result = {
+                const result: DataItem = {
                     title: itemTitle,
                     link: itemUrl,
                     description,
                 };
                 if (itemDate) {
-                    result.pubDate = parseDate(itemDate, 'YYYY年MM月DD日');
+                    result.pubDate = timezone(parseDate(itemDate, 'YYYY年MM月DD日'), 8);
                 }
                 return result;
             });
@@ -66,7 +70,7 @@ async function handler() {
     );
 
     return {
-        title: `中国研究生招生信息网 - 热点`,
+        title: '中国研究生招生信息网 - 热点',
         link: host,
         description: '中国研究生招生信息网 - 热点',
         item: items,

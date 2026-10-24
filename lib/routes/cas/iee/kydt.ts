@@ -1,8 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 import timezone from '@/utils/timezone';
 
 export const route: Route = {
@@ -29,7 +31,8 @@ export const route: Route = {
     url: 'www.iee.cas.cn/xwzx/kydt',
 };
 
-async function handler() {
+async function handler(ctx) {
+    const limit = getRouteLimit(ctx, 15);
     const rootUrl = 'http://www.iee.cas.cn/xwzx/kydt/';
     const response = await got({
         method: 'get',
@@ -38,11 +41,11 @@ async function handler() {
 
     const $ = load(response.data);
     const list = $('li.entry .entry-content-title')
-        .slice(0, 15)
+        .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
-            const a = item.find('a');
+        .map((item): DataItem => {
+            const $item = $(item);
+            const a = $item.find('a');
             return {
                 title: a.text(),
                 link: a.attr('href'),
@@ -51,7 +54,7 @@ async function handler() {
 
     const items = await Promise.all(
         list.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,
@@ -59,7 +62,7 @@ async function handler() {
                 const content = load(detailResponse.data);
 
                 item.description = content('.article-content').html();
-                item.pubDate = timezone(parseDate(content('time').text().split('：')[1]), 8);
+                item.pubDate = timezone(parseDate(content('time').text().split('：', 2)[1]), 8);
 
                 return item;
             })

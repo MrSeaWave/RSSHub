@@ -1,27 +1,46 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+import type { Context } from 'hono';
+
+import { config } from '@/config';
+import type { Language, Route } from '@/types';
+import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
-import timezone from '@/utils/timezone';
+import { getRouteLimit } from '@/utils/route-limit';
+
 const rootUrl = 'https://www.iguoguo.net';
 
-const getChildrenFromCheerioRoot = (cheerioInstance) => {
-    const root = cheerioInstance.root();
-    const rootKeys = Object.keys(root).filter((n) => n % 1 === 0);
-    const rootChildren = rootKeys.map((key) => root[key].children);
-    return rootChildren[0];
-};
+const imageMimeTypes = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml' } satisfies Record<string, string>;
+const isImageExtension = (key: string): key is keyof typeof imageMimeTypes => Object.hasOwn(imageMimeTypes, key);
 
-const getComments = (a, node) => {
-    if (node.type === 'comment') {
-        return [...a, node.data];
-    } else if (node.type === 'tag' && node.children && node.children.length > 0) {
-        return [...a, ...node.children.reduce((accumulator, element) => getComments(accumulator, element), [])];
-    } else {
-        return a;
-    }
-};
+const getCategoryIdFromSlug = (slug) =>
+    cache.tryGet(`iguoguo:category:${slug}`, async () => {
+        const response = await ofetch(`${rootUrl}/wp-json/wp/v2/categories`, {
+            query: {
+                slug,
+            },
+        });
+        if (!Array.isArray(response) || !response[0]?.id) {
+            throw new Error('The source did not return the H5 category. Check whether the original WordPress API is still available.');
+        }
+        return response[0].id;
+    });
+
+const getPostsByCategory = (categoryId, limit) =>
+    cache.tryGet(
+        `iguoguo:posts:${categoryId}:${limit}`,
+        async () => {
+            const response = await ofetch(`${rootUrl}/wp-json/wp/v2/posts`, {
+                query: {
+                    categories: categoryId,
+                    per_page: limit,
+                },
+            });
+            return response;
+        },
+        config.cache.routeExpire,
+        false
+    );
 
 export const route: Route = {
     path: '/html5',
@@ -41,55 +60,47 @@ export const route: Route = {
     handler,
 };
 
-async function handler() {
-    const currentUrl = rootUrl.concat('/html5');
-    const response = await got({
-        method: 'get',
-        url: currentUrl,
+function getGmtDate(value: string | undefined) {
+    const date = value ? parseDate(`${value.replace(/Z$/, '')}Z`) : undefined;
+    return date && !Number.isNaN(date.getTime()) ? date : undefined;
+}
+
+async function handler(ctx: Context) {
+    const limit = Math.min(getRouteLimit(ctx, 10), 100);
+    const currentUrl = `${rootUrl}/html5`;
+    const categorySlug = 'h5';
+
+    const categoryId = await getCategoryIdFromSlug(categorySlug);
+    const posts = await getPostsByCategory(categoryId, limit);
+
+    const items = posts.map((item) => {
+        const $ = load(item.content.rendered);
+        const cover = $('p > img').first().attr('src');
+        const mediaContent: Record<string, string> | undefined = cover ? { url: new URL(cover, rootUrl).href } : undefined;
+        const extension = cover ? new URL(cover, rootUrl).pathname.split('.').pop()?.toLowerCase() : undefined;
+        const imageMimeType = mediaContent && extension && isImageExtension(extension) ? imageMimeTypes[extension] : undefined;
+        if (imageMimeType && mediaContent) {
+            mediaContent.type = imageMimeType;
+        }
+
+        $('h4').each((_, el) => {
+            if ($(el).text().includes('扫码欣赏')) {
+                $(el).remove();
+            }
+        });
+        return {
+            title: item.title.rendered,
+            description: $.html(),
+            link: item.link,
+            pubDate: getGmtDate(item.date_gmt),
+            media: mediaContent ? { content: mediaContent } : undefined,
+        };
     });
-    const $ = load(response.data);
-    const list = $('a', '.post')
-        .filter((_, x) => $(x).attr('href').endsWith('.html'))
-        .filter((_, x) => $(x).children().eq(0).attr('src'))
-        .map((_, item) => ({
-            link: $(item).attr('href'),
-            cover: $(item).children().eq(0).attr('src'),
-        }))
-        .get();
-
-    const mime = {
-        jpg: 'jpeg',
-        png: 'png',
-    };
-
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
-                const detailResponse = await got({
-                    method: 'get',
-                    url: item.link,
-                });
-                const content = load(detailResponse.data);
-                item.title = content('h1', '.post-info').text();
-                item.description = content('div.clearfix', '.post_content').html();
-                const comments = getChildrenFromCheerioRoot(content).reduce((accumulator, element) => getComments(accumulator, element), []);
-                const date = comments.at(-1).trim().split(' ').slice(9, 11);
-                item.pubDate = timezone(parseDate(date[0] + date[1], 'YYYY-MM-DDHH:mm:ss'), +8);
-                item.media = {
-                    content: {
-                        url: item.cover,
-                        type: `image/${mime[item.cover.split('.').pop()]}`,
-                    },
-                };
-                return item;
-            })
-        )
-    );
     return {
         title: '爱果果',
         link: currentUrl,
         description: '爱果果iguoguo是一个优秀酷站、h5、UI素材资源的发布分享平台，是设计师的灵感聚合地和素材下载源。',
-        language: 'zh-cn',
+        language: 'zh-CN' as const satisfies Language,
         item: items,
     };
 }

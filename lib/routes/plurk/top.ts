@@ -1,14 +1,16 @@
-import { Route, ViewType } from '@/types';
-import cache from '@/utils/cache';
-import got from '@/utils/got';
-import { baseUrl, getPlurk } from './utils';
 import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
+import got from '@/utils/got';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import { baseUrl, getPlurk } from './utils';
 
 const categoryList = new Set(['topReplurks', 'topFavorites', 'topResponded']);
 
 export const route: Route = {
     path: '/top/:category?/:lang?',
-    categories: ['social-media', 'popular'],
+    categories: ['social-media'],
     view: ViewType.SocialMedia,
     example: '/plurk/top/topReplurks',
     parameters: { category: 'Category, see the table below, `topReplurks` by default', lang: 'Language, see the table below, `en` by default' },
@@ -24,12 +26,12 @@ export const route: Route = {
     maintainers: ['TonyRL'],
     handler,
     description: `| Top Replurks | Top Favorites | Top Responded |
-  | ------------ | ------------- | ------------- |
-  | topReplurks  | topFavorites  | topResponded  |
+| ------------ | ------------- | ------------- |
+| topReplurks  | topFavorites  | topResponded  |
 
-  | English | 中文（繁體） |
-  | ------- | ------------ |
-  | en      | zh           |`,
+| English | 中文（繁體） |
+| ------- | ------------ |
+| en      | zh           |`,
 };
 
 async function handler(ctx) {
@@ -42,11 +44,11 @@ async function handler(ctx) {
         searchParams: {
             period: 'day',
             lang,
-            limit: ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 90,
+            limit: getRouteLimit(ctx, 90),
         },
     });
 
-    const items = await Promise.all(apiResponse.stats.map((item) => item[1]).map((item) => getPlurk(`plurk:${item.plurk_id}`, item, item.owner.display_name, cache.tryGet)));
+    const items = await Promise.all(apiResponse.stats.map((item) => item[1]).map((item) => getPlurk(`plurk:${item.plurk_id}`, item, item.owner.display_name)));
 
     return {
         title: 'Top Plurk - Plurk',

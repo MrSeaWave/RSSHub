@@ -1,58 +1,104 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import { FetchError } from 'ofetch';
+import { CookieJar } from 'tough-cookie';
 
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
+
+async function getResponse(url: string, cookieJar: CookieJar) {
+    const options = {
+        headers: { Cookie: cookieJar.getCookieStringSync(url) },
+        onResponse: ({ response }) => {
+            for (const cookie of response.headers.getSetCookie()) {
+                cookieJar.setCookieSync(cookie, url);
+            }
+        },
+    };
+    let response;
+    try {
+        response = await got(url, options);
+    } catch (error) {
+        if (!(error instanceof FetchError) || error.response?.status !== 403 || !cookieJar.getCookieStringSync(url)) {
+            throw error;
+        }
+        options.headers.Cookie = cookieJar.getCookieStringSync(url);
+        response = await got(url, options);
+    }
+    return response.data;
+}
 
 export const handler = async (ctx) => {
     const { id = '9' } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 20;
+    const limit = getRouteLimit(ctx, 20);
 
     const domain = 'www.cisia.org';
-    const rootUrl = `http://${domain}`;
-    const currentUrl = new URL(`site/term/${id}.html`, rootUrl).href;
+    const rootUrl = `https://${domain}`;
+    const currentUrl = new URL(`site/term/${id.replace(/\.html$/, '')}.html`, rootUrl).href;
 
-    const { data: response } = await got(currentUrl);
+    const cookieJar = new CookieJar();
+    const response = await getResponse(currentUrl, cookieJar);
 
     const $ = load(response);
 
-    let items = $('ul.list_first li')
-        .slice(0, limit)
+    let items = $('ul.list_first li, ul.product_list li, ul.three_list li')
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
-            const a = item.find('a');
+            const a = $item.find('a');
 
             return {
                 title: a.text(),
-                pubDate: parseDate(item.find('span.time').text()),
-                link: new URL(a.prop('href'), rootUrl).href,
+                pubDate: timezone(parseDate($item.find('span.time').text()), 8),
+                link: new URL(a.prop('href')!, rootUrl).href,
             };
         });
 
+    const map = $('div.TextBox > div.map_section');
+    if (!items.length && map.length) {
+        const metadata = $('div.TextTitle div.shar').text();
+        const date = metadata.match(/(\d{4}-\d{2}-\d{2})/)?.[1];
+        const author = metadata.split('来源：', 2)[1]?.split('分享到：', 1)[0].trim();
+        items.push({
+            title: $('div.TextTitle > h6').text(),
+            link: currentUrl,
+            pubDate: date ? timezone(parseDate(date), 8) : undefined,
+            author: author && author !== '未知' ? author : undefined,
+            description: map.html(),
+        });
+    }
+
+    if (ctx.req.query('sorted') !== 'false') {
+        items.sort((a, b) => parseDate(b.pubDate!).valueOf() - parseDate(a.pubDate!).valueOf());
+    }
+    items = items.slice(0, limit);
+
     items = await Promise.all(
         items.map((item) =>
-            cache.tryGet(item.link, async () => {
-                if (!/^https?:\/\/www\.cisia\.org(\/[^\s]*)?$/.test(item.link)) {
+            cache.tryGet(item.link!, async () => {
+                if (item.link === currentUrl || !/^https?:\/\/www\.cisia\.org(?:\/\S*)?$/.test(item.link!)) {
                     return item;
                 }
 
-                const { data: detailResponse } = await got(item.link);
+                const detailResponse = await getResponse(item.link!, cookieJar);
 
                 const $$ = load(detailResponse);
 
-                const title = $$('div.TextTitle').text();
+                const title = $$('div.TextTitle > h6').text() || item.title;
                 const description = $$('div.NewsText').html();
                 const pubDate = $$('div.shar')
                     .text()
                     .match(/(\d{4}-\d{2}-\d{2})/)?.[1];
+                const author = $$('div.shar').text().split('来源：', 2)[1]?.split('分享到：', 1)[0].trim();
 
                 item.title = title;
                 item.description = description;
-                item.pubDate = pubDate ? parseDate(pubDate) : item.pubDate;
-                item.author = $$('meta[name="Description"]').prop('content');
+                item.pubDate = pubDate ? timezone(parseDate(pubDate), 8) : item.pubDate;
+                item.author = author && author !== '未知' ? author : undefined;
                 item.content = {
                     html: description,
                     text: $$('div.NewsText').text(),
@@ -63,14 +109,13 @@ export const handler = async (ctx) => {
         )
     );
 
-    const image = new URL($('div.logo img').prop('src'), rootUrl).href;
+    const image = new URL($('div.logo img').prop('src')!, rootUrl).href;
 
     return {
         title: $('title').text(),
         description: $('meta[name="Description"]').prop('content'),
         link: currentUrl,
         item: items,
-        allowEmpty: true,
         image,
         author: $('meta[name="Keywords"]').prop('content'),
     };
@@ -84,63 +129,62 @@ export const route: Route = {
     handler,
     example: '/cisia/9',
     parameters: { id: '栏目 id，默认为 `9`，即协会动态，可在对应分类页 URL 中找到' },
-    description: `:::tip
-  若订阅 [市场信息](http://www.cisia.org/site/term/12.html)，网址为 \`http://www.cisia.org/site/term/12.html\`。截取 \`https://www.cisia.org/site/term/\` 到末尾 \`.html\` 的部分 \`12\` 作为参数填入，此时路由为 [\`/cisia/12\`](https://rsshub.app/cisia/12)。
-  :::
+    description: `::: tip
+若订阅 [市场信息](http://www.cisia.org/site/term/12.html)，网址为 \`http://www.cisia.org/site/term/12.html\`。截取 \`https://www.cisia.org/site/term/\` 到末尾 \`.html\` 的部分 \`12\` 作为参数填入，此时路由为 [\`/cisia/12\`](https://rsshub.app/cisia/12)。
+:::
 
-  <details>
-    <summary>更多分类</summary>
+<details>
+<summary>更多分类</summary>
 
-  #### [分支机构信息](http://www.cisia.org/site/term/14.html)
+#### [分支机构信息](http://www.cisia.org/site/term/14.html)
 
-  | [企业动态](http://www.cisia.org/site/term/17.html) | [产品展示](http://www.cisia.org/site/term/18.html) |
-  | -------------------------------------------------- | -------------------------------------------------- |
-  | [17](https://rsshub.app/cisia/17)                  | [18](https://rsshub.app/cisia/18)                  |
+| [企业动态](http://www.cisia.org/site/term/17.html) | [产品展示](http://www.cisia.org/site/term/18.html) |
+| -------------------------------------------------- | -------------------------------------------------- |
+| [17](https://rsshub.app/cisia/17)                  | [18](https://rsshub.app/cisia/18)                  |
 
-  #### [新闻中心](http://www.cisia.org/site/term/8.html)
+#### [新闻中心](http://www.cisia.org/site/term/8.html)
 
-  | [协会动态](http://www.cisia.org/site/term/9.html) | [行业新闻](http://www.cisia.org/site/term/10.html) | [通知公告](http://www.cisia.org/site/term/11.html) | [市场信息](http://www.cisia.org/site/term/12.html) |
-  | ------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- |
-  | [9](https://rsshub.app/cisia/9)                   | [10](https://rsshub.app/cisia/10)                  | [11](https://rsshub.app/cisia/11)                  | [12](https://rsshub.app/cisia/12)                  |
+| [协会动态](http://www.cisia.org/site/term/9.html) | [行业新闻](http://www.cisia.org/site/term/10.html) | [通知公告](http://www.cisia.org/site/term/11.html) | [市场信息](http://www.cisia.org/site/term/12.html) |
+| ------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- |
+| [9](https://rsshub.app/cisia/9)                   | [10](https://rsshub.app/cisia/10)                  | [11](https://rsshub.app/cisia/11)                  | [12](https://rsshub.app/cisia/12)                  |
 
-  #### [政策法规](http://www.cisia.org/site/term/19.html)
+#### [政策法规](http://www.cisia.org/site/term/19.html)
 
-  | [宏观聚焦](http://www.cisia.org/site/term/20.html) | [技术园区](http://www.cisia.org/site/term/396.html) |
-  | -------------------------------------------------- | --------------------------------------------------- |
-  | [20](https://rsshub.app/cisia/20)                  | [396](https://rsshub.app/cisia/396)                 |
+| [宏观聚焦](http://www.cisia.org/site/term/20.html) | [技术园区](http://www.cisia.org/site/term/396.html) |
+| -------------------------------------------------- | --------------------------------------------------- |
+| [20](https://rsshub.app/cisia/20)                  | [396](https://rsshub.app/cisia/396)                 |
 
-  #### [合作交流](http://www.cisia.org/site/term/22.html)
+#### [合作交流](http://www.cisia.org/site/term/22.html)
 
-  | [国际交流](http://www.cisia.org/site/term/23.html) | [行业交流](http://www.cisia.org/site/term/24.html) | [企业调研](http://www.cisia.org/site/term/25.html) | [会展信息](http://www.cisia.org/site/term/84.html) | [宣传专题](http://www.cisia.org/site/term/430.html) |
-  | -------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------- |
-  | [23](https://rsshub.app/cisia/23)                  | [24](https://rsshub.app/cisia/24)                  | [25](https://rsshub.app/cisia/25)                  | [84](https://rsshub.app/cisia/84)                  | [430](https://rsshub.app/cisia/430)                 |
+| [国际交流](http://www.cisia.org/site/term/23.html) | [行业交流](http://www.cisia.org/site/term/24.html) | [企业调研](http://www.cisia.org/site/term/25.html) | [会展信息](http://www.cisia.org/site/term/84.html) | [宣传专题](http://www.cisia.org/site/term/430.html) |
+| -------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------- |
+| [23](https://rsshub.app/cisia/23)                  | [24](https://rsshub.app/cisia/24)                  | [25](https://rsshub.app/cisia/25)                  | [84](https://rsshub.app/cisia/84)                  | [430](https://rsshub.app/cisia/430)                 |
 
-  #### [党建工作](http://www.cisia.org/site/term/26.html)
+#### [党建工作](http://www.cisia.org/site/term/26.html)
 
-  | [党委文件](http://www.cisia.org/site/term/27.html) | [学习园地](http://www.cisia.org/site/term/28.html) | [两会专题](http://www.cisia.org/site/term/443.html) |
-  | -------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------- |
-  | [27](https://rsshub.app/cisia/27)                  | [28](https://rsshub.app/cisia/28)                  | [443](https://rsshub.app/cisia/443)                 |
+| [党委文件](http://www.cisia.org/site/term/27.html) | [学习园地](http://www.cisia.org/site/term/28.html) | [两会专题](http://www.cisia.org/site/term/443.html) |
+| -------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------- |
+| [27](https://rsshub.app/cisia/27)                  | [28](https://rsshub.app/cisia/28)                  | [443](https://rsshub.app/cisia/443)                 |
 
-  #### [网上服务平台](http://www.cisia.org/site/term/29.html)
+#### [网上服务平台](http://www.cisia.org/site/term/29.html)
 
-  | [前沿科技](http://www.cisia.org/site/term/31.html) | [新材料新技术](http://www.cisia.org/site/term/133.html) | [文件共享](http://www.cisia.org/site/term/30.html) |
-  | -------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------- |
-  | [31](https://rsshub.app/cisia/31)                  | [133](https://rsshub.app/cisia/133)                     | [30](https://rsshub.app/cisia/30)                  |
+| [前沿科技](http://www.cisia.org/site/term/31.html) | [新材料新技术](http://www.cisia.org/site/term/133.html) | [文件共享](http://www.cisia.org/site/term/30.html) |
+| -------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------- |
+| [31](https://rsshub.app/cisia/31)                  | [133](https://rsshub.app/cisia/133)                     | [30](https://rsshub.app/cisia/30)                  |
 
-  #### [会员社区](http://www.cisia.org/site/term/34.html)
+#### [会员社区](http://www.cisia.org/site/term/34.html)
 
-  | [会员分布](http://www.cisia.org/site/term/35.html) | [会员风采](http://www.cisia.org/site/term/68.html) |
-  | -------------------------------------------------- | -------------------------------------------------- |
-  | [35](https://rsshub.app/cisia/35)                  | [68](https://rsshub.app/cisia/68)                  |
+| [会员分布](http://www.cisia.org/site/term/35.html) | [会员风采](http://www.cisia.org/site/term/68.html) |
+| -------------------------------------------------- | -------------------------------------------------- |
+| [35](https://rsshub.app/cisia/35)                  | [68](https://rsshub.app/cisia/68)                  |
 
-  </details>
-    `,
+</details>`,
     categories: ['government'],
 
     features: {
         requireConfig: false,
         requirePuppeteer: false,
-        antiCrawler: false,
+        antiCrawler: true,
         supportRadar: true,
         supportBT: false,
         supportPodcast: false,
@@ -149,11 +193,7 @@ export const route: Route = {
     radar: [
         {
             source: ['www.cisia.org/site/term/:id'],
-            target: (params) => {
-                const id = params.id.replace(/\.html/, '');
-
-                return id ? `/${id}` : '';
-            },
+            target: '/:id',
         },
         {
             title: '分支机构信息 - 企业动态',

@@ -1,6 +1,9 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import { getRollNewsList, parseRollNewsList, parseArticle } from '../utils';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import { getRollNewsList, parseArticle, parseRollNewsList } from '../utils';
 
 export const route: Route = {
     path: '/finance/china/:lid?',
@@ -26,8 +29,8 @@ export const route: Route = {
     handler,
     url: 'finance.sina.com.cn/china',
     description: `| 国内滚动 | 宏观经济 | 金融新闻 | 地方经济 | 部委动态 | 今日财经 TOP10 |
-  | -------- | -------- | -------- | -------- | -------- | -------------- |
-  | 1686     | 1687     | 1690     | 1688     | 1689     | 3231           |`,
+| -------- | -------- | -------- | -------- | -------- | -------------- |
+| 1686     | 1687     | 1690     | 1688     | 1689     | 3231           |`,
 };
 
 async function handler(ctx) {
@@ -41,11 +44,11 @@ async function handler(ctx) {
     };
     const pageid = '155';
     const { lid = '1686' } = ctx.req.param();
-    const { limit = '50' } = ctx.req.query();
+    const limit = getRouteLimit(ctx, 50);
     const response = await getRollNewsList(pageid, lid, limit);
     const list = parseRollNewsList(response.data.result.data);
 
-    const out = await Promise.all(list.map((item) => parseArticle(item, cache.tryGet)));
+    const out = await pMap(list, parseArticle, { concurrency: 3 });
 
     return {
         title: `新浪财经－${map[lid]}`,

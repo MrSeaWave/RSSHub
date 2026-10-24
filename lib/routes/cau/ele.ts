@@ -1,7 +1,9 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/ele',
@@ -25,7 +27,7 @@ export const route: Route = {
     maintainers: ['shengmaosu'],
     handler,
     url: 'ciee.cau.edu.cn/col/col26712/index.html',
-    description: `#### 信电学院 {#zhong-guo-nong-ye-da-xue-yan-zhao-wang-tong-zhi-gong-gao-xin-dian-xue-yuan}`,
+    description: '#### 信电学院 {#zhong-guo-nong-ye-da-xue-yan-zhao-wang-tong-zhi-gong-gao-xin-dian-xue-yuan}',
 };
 
 async function handler() {
@@ -53,14 +55,14 @@ async function handler() {
         item:
             list &&
             list.toArray().map((item) => {
-                item = $(item);
-                const a = item.find('a');
+                const $item = $(item);
+                const a = $item.find('a');
                 const title = a.attr('title');
                 const link = `${baseUrl}${a.attr('href')}`;
                 return {
-                    title,
+                    title: title!,
                     link,
-                    pubDate: parseDate(item.find('.col-lg-1').text()),
+                    pubDate: timezone(parseDate($item.find('.col-lg-1').text()), 8),
                     guid: `${link}#${title}`,
                 };
             }),

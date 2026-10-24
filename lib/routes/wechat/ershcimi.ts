@@ -1,9 +1,10 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import { finishArticleItem } from '@/utils/wechat-mp';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
+import { finishArticleItem } from '@/utils/wechat-mp';
 
 export const route: Route = {
     path: '/ershicimi/:id',
@@ -35,11 +36,12 @@ async function handler(ctx) {
         .map((ele) => {
             const $item = load(ele);
             const link = $item('.weui_media_title a').attr('href');
+            const date = $item('.weui_media_extra_info').attr('title');
             return {
                 title: $item('.weui_media_title a').text(),
                 description: $item('.weui_media_desc').text(),
                 link,
-                pubDate: timezone(parseDate($item('.weui_media_extra_info').attr('title')), +8),
+                pubDate: date ? timezone(parseDate(date), 8) : undefined,
             };
         });
 
@@ -47,8 +49,6 @@ async function handler(ctx) {
         title: `微信公众号 - ${$('span.name').text()}`,
         link: url,
         description: $('div.Profile-sideColumnItemValue').text(),
-        item: await Promise.all(items.map((item) => finishArticleItem(item))).catch((error) => {
-            throw error;
-        }),
+        item: await Promise.all(items.map((item) => finishArticleItem(item))),
     };
 }

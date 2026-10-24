@@ -1,7 +1,10 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import got from '@/utils/got';
-import { host, acw_sc__v2, parseList, parseItems } from './utils';
+
+import { acw_sc__v2, host, parseItems, parseList } from './utils';
 
 export const route: Route = {
     path: '/blogs/:tag',
@@ -28,15 +31,15 @@ export const route: Route = {
 
 async function handler(ctx) {
     const tag = ctx.req.param('tag');
-    const apiURL = `${host}/gateway/tag/${tag}/articles?loadMoreType=pagination&initData=true&page=1&sort=newest&pageSize=30`;
-    const response = await got(apiURL);
-    const data = response.data.rows;
+    const response = await got(`${host}/t/${tag}/blogs`);
+    const $ = load(response.data);
+    const data = JSON.parse($('#__NEXT_DATA__').text()).props.pageProps.initialState.tag.tagRecord.rows;
 
     const list = parseList(data);
 
-    const acwScV2Cookie = await acw_sc__v2(list[0].link, cache.tryGet);
+    const acwScV2Cookie = await acw_sc__v2(list[0].link);
 
-    const items = await Promise.all(list.map((item) => parseItems(acwScV2Cookie, item, cache.tryGet)));
+    const items = await pMap(list, (item) => parseItems(acwScV2Cookie, item), { concurrency: 3 });
 
     return {
         title: `segmentfault-Blogs-${tag}`,

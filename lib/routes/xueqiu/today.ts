@@ -1,9 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import { parseToken } from '@/routes/xueqiu/cookies';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
-import { parseToken } from '@/routes/xueqiu/cookies';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
     path: '/today',
@@ -12,8 +14,8 @@ export const route: Route = {
     parameters: {},
     features: {
         requireConfig: false,
-        requirePuppeteer: false,
-        antiCrawler: false,
+        requirePuppeteer: true,
+        antiCrawler: true,
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
@@ -30,11 +32,11 @@ export const route: Route = {
 };
 
 async function handler(ctx) {
-    const size = ctx.req.query('limit') ?? '20';
+    const size = getRouteLimit(ctx, 20);
 
     const rootUrl = 'https://xueqiu.com';
     const currentUrl = `${rootUrl}/today`;
-    const apiUrl = `${rootUrl}/statuses/hot/listV2.json?since_id=-1&size=${size}`;
+    const apiUrl = `https://api.xueqiu.com/statuses/hot/listV2.json?since_id=-1&size=${size}`;
 
     const token = await parseToken(currentUrl);
     const response = await got({
@@ -58,24 +60,20 @@ async function handler(ctx) {
     });
 
     items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
+        items.map(async (item) => ({
+            ...item,
+            description: await cache.tryGet(`xueqiu:today:description:${item.link}`, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,
                     headers: {
-                        Referer: rootUrl,
                         Cookie: token,
                     },
                 });
-
                 const content = load(detailResponse.data);
-
-                item.description = content('.article__bd__detail').html();
-
-                return item;
-            })
-        )
+                return content('.article__bd__detail').html();
+            }),
+        }))
     );
 
     return {

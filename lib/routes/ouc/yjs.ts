@@ -1,7 +1,9 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/yjs',
@@ -31,7 +33,7 @@ async function handler() {
     const link = 'https://yz.ouc.edu.cn/5926/list.htm';
     const response = await got(link);
     const $ = load(response.data);
-    const list = $('.wp_article_list li');
+    const list = $('.wp_article_list li, .col_news_list .news_list li');
 
     return {
         title: '中国海洋大学研究生院',
@@ -40,12 +42,12 @@ async function handler() {
         item:
             list &&
             list.toArray().map((item) => {
-                item = $(item);
-                const a = item.find('a');
+                const $item = $(item);
+                const a = $item.find('a');
                 return {
-                    title: a.attr('title'),
-                    link: new URL(a.attr('href'), link).href,
-                    pubDate: parseDate(item.find('.Article_PublishDate').text()),
+                    title: a.attr('title')!,
+                    link: new URL(a.attr('href')!, link).href,
+                    pubDate: timezone(parseDate($item.find('.Article_PublishDate, .news_meta').text(), 'YYYY-MM-DD'), 8),
                 };
             }),
     };

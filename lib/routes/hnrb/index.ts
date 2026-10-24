@@ -1,9 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/:id?',
@@ -21,7 +23,7 @@ export const route: Route = {
     radar: [
         {
             source: ['voc.com.cn/'],
-            target: '/:id',
+            target: '/',
         },
     ],
     name: '电子刊物',
@@ -29,17 +31,17 @@ export const route: Route = {
     handler,
     url: 'voc.com.cn/',
     description: `| 版                   | 编号 |
-  | -------------------- | ---- |
-  | 全部                 |      |
-  | 第 01 版：头版       | 1    |
-  | 第 02 版：要闻       | 2    |
-  | 第 03 版：要闻       | 3    |
-  | 第 04 版：深度       | 4    |
-  | 第 05 版：市州       | 5    |
-  | 第 06 版：理论・学习 | 6    |
-  | 第 07 版：观察       | 7    |
-  | 第 08 版：时事       | 8    |
-  | 第 09 版：中缝       | 9    |`,
+| -------------------- | ---- |
+| 全部                 |      |
+| 第 01 版：头版       | 1    |
+| 第 02 版：要闻       | 2    |
+| 第 03 版：要闻       | 3    |
+| 第 04 版：深度       | 4    |
+| 第 05 版：市州       | 5    |
+| 第 06 版：理论・学习 | 6    |
+| 第 07 版：观察       | 7    |
+| 第 08 版：时事       | 8    |
+| 第 09 版：中缝       | 9    |`,
 };
 
 async function handler(ctx) {
@@ -55,7 +57,7 @@ async function handler(ctx) {
 
     response = await got({
         method: 'get',
-        url: `${currentUrl}/${id ? response.data.match(/URL=(.*)"/)[1].replace(/node_\d+\.htm$/, `node_20${id}.htm`) : response.data.match(/URL=(.*)"/)[1]}`,
+        url: `${currentUrl}/${id ? response.data.match(/URL=(.*)"/)[1].replace(/node_\d+\.htm$/, () => `node_20${id}.htm`) : response.data.match(/URL=(.*)"/)[1]}`,
     });
 
     const $ = load(response.data);
@@ -63,41 +65,42 @@ async function handler(ctx) {
     const matches = response.data.match(/images\/(\d{4}-\d{2}\/\d{2})\/\d{2}\/\d+_brief/);
     const link = `${rootUrl}/hnrb_epaper/html/${matches[1]}`;
 
-    let items = $('tbody')
+    const urls = $('tbody')
         .eq(1)
         .find('a')
         .toArray()
-        .map((a) => `${link}/${$(a).attr('href').replace(/\.\//, '')}`)
+        .map((a) => `${link}/${$(a).attr('href')!.replace(/\.\//, '')}`)
         .filter((a) => a.endsWith('div=-1'));
 
     if (!id) {
-        await Promise.all(
+        const boardArticles = await pMap(
             $('#pageLink')
                 .slice(1)
                 .toArray()
-                .map((p) => `${link}/${$(p).attr('href').replace(/\.\//, '')}`)
-                .map(async (p) => {
-                    const pageResponse = await got({
-                        method: 'get',
-                        url: p,
-                    });
+                .map((p) => `${link}/${$(p).attr('href')!.replace(/\.\//, '')}`),
+            async (p) => {
+                const pageResponse = await got({
+                    method: 'get',
+                    url: p,
+                });
 
-                    const page = load(pageResponse.data);
+                const page = load(pageResponse.data);
 
-                    items.push(
-                        ...page('tbody')
-                            .eq(1)
-                            .find('a')
-                            .toArray()
-                            .map((a) => `${link}/${page(a).attr('href').replace(/\.\//, '')}`)
-                            .filter((a) => a.endsWith('div=-1'))
-                    );
-                })
+                return page('tbody')
+                    .eq(1)
+                    .find('a')
+                    .toArray()
+                    .map((a) => `${link}/${page(a).attr('href')!.replace(/\.\//, '')}`)
+                    .filter((a) => a.endsWith('div=-1'));
+            },
+            { concurrency: 3 }
         );
+        urls.push(...boardArticles.flat());
     }
 
-    items = await Promise.all(
-        items.map((item) =>
+    const items = await pMap(
+        urls,
+        (item) =>
             cache.tryGet(item, async () => {
                 const detailResponse = await got({
                     method: 'get',
@@ -110,10 +113,10 @@ async function handler(ctx) {
                     link: item,
                     title: content('.font01').text(),
                     description: content('#ozoom').html(),
-                    pubDate: timezone(parseDate(matches[1], 'YYYY-MM/DD'), +8),
+                    pubDate: timezone(parseDate(matches[1], 'YYYY-MM/DD'), 8),
                 };
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
     return {

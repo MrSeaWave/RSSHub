@@ -1,11 +1,12 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
     path: '/shouts/:username',
     name: 'Shouts',
     url: 'furaffinity.net',
-    categories: ['social-media', 'popular'],
+    categories: ['social-media'],
     example: '/furaffinity/shouts/fender',
     maintainers: ['TigerCubDen', 'SkyNetX007'],
     parameters: { username: 'Username, can find in userpage' },
@@ -16,6 +17,7 @@ export const route: Route = {
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
+        nsfw: true,
     },
     radar: [
         {
@@ -41,13 +43,12 @@ async function handler(ctx) {
         title: `${item.name} shout at ${username}`,
         link: `https://www.furaffinity.net/user/${username}`,
         guid: item.id,
-        description: `<img src="${item.avatar}"> <br> ${item.name}: ${item.text}`,
-        pubDate: new Date(item.posted_at).toUTCString(),
-        author: username,
+        description: item.text,
+        pubDate: item.posted_at ? parseDate(item.posted_at) : undefined,
+        author: [{ name: item.name, ...(item.avatar && { avatar: new URL(item.avatar, 'https://www.furaffinity.net').href }) }],
     }));
 
     return {
-        allowEmpty: true,
         title: `Fur Affinity | ${username}'s Shouts`,
         link: `https://www.furaffinity.net/user/${username}`,
         description: `Fur Affinity ${username}'s Shouts`,

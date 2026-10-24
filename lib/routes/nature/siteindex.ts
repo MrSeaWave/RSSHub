@@ -1,7 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
+
 import { baseUrl, cookieJar } from './utils';
 
 export const route: Route = {
@@ -26,19 +29,20 @@ async function handler(ctx) {
     const response = await got(`${baseUrl}/siteindex`, { cookieJar });
     const $ = load(response.data);
 
-    let items = $('li[class^="grid mq640-grid-12"]')
+    const items = $('li[class^="grid mq640-grid-12"]')
         .toArray()
         .map((item) => {
-            item = $(item);
+            const $item = $(item);
             return {
-                title: item.find('a').attr('href').replaceAll('/', ''),
-                name: item.find('a').text(),
-                link: baseUrl + item.find('a').attr('href'),
+                title: $item.find('a').attr('href')!.replaceAll('/', ''),
+                name: $item.find('a').text(),
+                link: baseUrl + $item.find('a').attr('href'),
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
+    const detailedItems = await pMap(
+        items,
+        (item) =>
             cache.tryGet(`nature:siteindex:${item.title}`, async () => {
                 try {
                     const response = await got(item.link, { cookieJar });
@@ -67,16 +71,20 @@ async function handler(ctx) {
                         name: item.name,
                     };
                 }
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
     ctx.set('json', {
-        items,
+        items: detailedItems,
     });
     return {
         title: 'Nature siteindex',
-        link: response.url,
-        item: items,
+        link: `${baseUrl}/siteindex`,
+        item: detailedItems.map((item, index) => ({
+            title: item.title,
+            description: 'description' in item ? item.description : undefined,
+            link: items[index].link,
+        })),
     };
 }

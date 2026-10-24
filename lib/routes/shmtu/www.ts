@@ -1,26 +1,32 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import { parseDate } from '@/utils/parse-date';
+import { parseDateInTimezone } from '@/utils/parse-date-in-timezone';
+
 const host = 'https://www.shmtu.edu.cn';
 
 async function loadContent(link) {
-    const response = await got.get(link, { https: { rejectUnauthorized: false } });
+    const response = await got(link);
     const $ = load(response.data);
 
-    return $('article').html();
+    return $('.wp_articlecontent').html();
 }
 
-const ProcessFeed = (list, caches) =>
-    Promise.all(
-        list.map((item) =>
-            caches.tryGet(item.link, async () => {
+const processFeed = (list: Array<DataItem & { link: string }>, caches: typeof cache) =>
+    pMap(
+        list,
+        async (item) => {
+            const details = await caches.tryGet(`shmtu:www:v2:${item.link}`, async () => {
                 item.description = await loadContent(item.link);
 
-                return item;
-            })
-        )
+                return { description: item.description };
+            });
+            return { ...item, ...details };
+        },
+        { concurrency: 3 }
     );
 
 export const route: Route = {
@@ -38,7 +44,12 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['www.shmtu.edu.cn/:type'],
+            source: ['www.shmtu.edu.cn/xsjz/list.htm', 'www.shmtu.edu.cn/events'],
+            target: '/www/events',
+        },
+        {
+            source: ['www.shmtu.edu.cn/12191/list.htm', 'www.shmtu.edu.cn/notes'],
+            target: '/www/notes',
         },
     ],
     name: '官网信息',
@@ -53,33 +64,29 @@ async function handler(ctx) {
     const type = ctx.req.param('type');
     const info = type === 'notes' ? '通知公告' : '学术讲座';
 
-    const response = await got(`${host}/${type}`, {
+    const currentUrl = `${host}/${type === 'notes' ? '12191' : 'xsjz'}/list.htm`;
+    const response = await got(currentUrl, {
         headers: {
             Referer: host,
         },
-        https: { rejectUnauthorized: false },
     });
 
     const $ = load(response.data);
-    const list = $('tbody tr')
+    const list = $('.tz-ul li')
         .toArray()
-        .map((item) => {
-            item = $(item);
-            const category = item.find('.department').text().trim();
-            return {
-                title: item.find('.title a').text().trim(),
-                link: new URL(item.find('a').attr('href'), host).href,
-                pubDate: parseDate(item.find('.date-display-single').attr('content')),
-                category,
-                author: category,
-            };
+        .flatMap((item) => {
+            const $item = $(item);
+            const anchor = $item.find('a[href]');
+            const href = anchor.attr('href');
+            const title = anchor.attr('title') || $item.find('.tz-ul-tt').text();
+            return href && title ? { title, link: new URL(href, host).href, pubDate: parseDateInTimezone($item.find('.one-center-bottom-date').text(), 8) } : [];
         });
 
-    const result = await ProcessFeed(list, cache);
+    const result = await processFeed(list, cache);
 
     return {
         title: `上海海事大学 ${info}`,
-        link: `${host}/${type}`,
+        link: currentUrl,
         description: '上海海事大学 官网信息',
         item: result,
     };

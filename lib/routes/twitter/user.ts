@@ -1,33 +1,33 @@
-import { Route, ViewType } from '@/types';
-import utils from './utils';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
+
 import api from './api';
-import logger from '@/utils/logger';
+import utils from './utils';
 
 export const route: Route = {
     path: '/user/:id/:routeParams?',
-    categories: ['social-media', 'popular'],
+    categories: ['social-media'],
     view: ViewType.SocialMedia,
     example: '/twitter/user/_RSSHub',
     parameters: {
         id: 'username; in particular, if starts with `+`, it will be recognized as a [unique ID](https://github.com/DIYgod/RSSHub/issues/12221), e.g. `+44196397`',
-        routeParams:
-            'extra parameters, see the table above; particularly when `routeParams=exclude_replies`, replies are excluded; `routeParams=exclude_rts` excludes retweets,`routeParams=exclude_rts_replies` exclude replies and retweets; for default include all.',
+        routeParams: 'extra parameters, see the table above',
     },
     features: {
         requireConfig: [
-            {
-                name: 'TWITTER_USERNAME',
-                description: 'Please see above for details.',
-            },
-            {
-                name: 'TWITTER_PASSWORD',
-                description: 'Please see above for details.',
-            },
-            {
-                name: 'TWITTER_AUTHENTICATION_SECRET',
-                description: 'TOTP 2FA secret, please see above for details.',
-                optional: true,
-            },
+            // {
+            //     name: 'TWITTER_USERNAME',
+            //     description: 'Please see above for details.',
+            // },
+            // {
+            //     name: 'TWITTER_PASSWORD',
+            //     description: 'Please see above for details.',
+            // },
+            // {
+            //     name: 'TWITTER_AUTHENTICATION_SECRET',
+            //     description: 'TOTP 2FA secret, please see above for details.',
+            //     optional: true,
+            // },
             {
                 name: 'TWITTER_AUTH_TOKEN',
                 description: 'Please see above for details.',
@@ -36,6 +36,14 @@ export const route: Route = {
                 name: 'TWITTER_THIRD_PARTY_API',
                 description: 'Use third-party API to query twitter data',
                 optional: true,
+            },
+            {
+                name: 'TWITTER_CONSUMER_KEY',
+                description: 'Please see above for details.',
+            },
+            {
+                name: 'TWITTER_CONSUMER_SECRET',
+                description: 'Please see above for details.',
             },
         ],
         requirePuppeteer: false,
@@ -59,19 +67,15 @@ async function handler(ctx) {
     const id = ctx.req.param('id');
 
     // For compatibility
-    const { count, exclude_replies, include_rts } = utils.parseRouteParams(ctx.req.param('routeParams'));
+    const { count, include_replies, include_rts } = utils.parseRouteParams(ctx.req.param('routeParams'));
     const params = count ? { count } : {};
 
     await api.init();
     const userInfo = await api.getUser(id);
-    let data;
-    try {
-        data = await (exclude_replies ? api.getUserTweets(id, params) : api.getUserTweetsAndReplies(id, params));
-        if (!include_rts) {
-            data = utils.excludeRetweet(data);
-        }
-    } catch (error) {
-        logger.error(error);
+    let data = await (include_replies ? api.getUserTweetsAndReplies(id, params) : api.getUserTweets(id, params));
+    const sourceCount = data.length;
+    if (!include_rts) {
+        data = utils.excludeRetweet(data);
     }
 
     const profileImageUrl = userInfo?.profile_image_url || userInfo?.profile_image_url_https;
@@ -79,13 +83,13 @@ async function handler(ctx) {
     return {
         title: `Twitter @${userInfo?.name}`,
         link: `https://x.com/${userInfo?.screen_name}`,
-        image: profileImageUrl.replace(/_normal.jpg$/, '.jpg'),
+        image: profileImageUrl?.replace(/_normal.jpg$/, '.jpg'),
         description: userInfo?.description,
         item:
             data &&
             utils.ProcessFeed(ctx, {
                 data,
             }),
-        allowEmpty: true,
+        allowEmpty: !include_rts && sourceCount > 0 && data.length === 0,
     };
 }

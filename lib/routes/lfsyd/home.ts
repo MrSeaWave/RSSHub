@@ -1,8 +1,9 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import { ProcessForm, ProcessFeed } from './utils';
+
+import { ProcessFeed, ProcessForm } from './utils';
 
 export const route: Route = {
     path: '/home',
@@ -55,7 +56,7 @@ async function handler() {
         title: item.post.title,
         pubDate: parseDate(item.post.show_time * 1000),
         link: `${rootUrl}/tz/post/${item.post.id}`,
-        guid: item.post.title,
+        guid: `${rootUrl}/tz/post/${item.post.id}`,
         postId: item.post.id,
     }));
     const items = await ProcessFeed(cache, articleList);

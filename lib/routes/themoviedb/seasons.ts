@@ -1,12 +1,14 @@
-import { Route, ViewType } from '@/types';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import apiKey from './api-key';
+
+import { keys as apiKey } from './api-key';
 import { handleDescription } from './utils';
 
 export const route: Route = {
     path: '/tv/:id/seasons/:lang?',
-    categories: ['multimedia', 'popular'],
+    categories: ['multimedia'],
     view: ViewType.Notifications,
     example: '/themoviedb/tv/70593/seasons/en-US',
     parameters: { id: 'TV show ID', lang: 'Language' },
@@ -44,7 +46,7 @@ async function handler(ctx) {
                 title: item.name,
                 link: `https://www.themoviedb.org/tv/${data.id}/season/${item.season_number}`,
                 description: handleDescription(item),
-                pubDate: item.air_date ? parseDate(item.air_date) : undefined,
+                pubDate: item.air_date ? parseDate(`${item.air_date}T00:00:00Z`) : undefined,
             };
         }),
     };

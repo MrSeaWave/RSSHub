@@ -1,9 +1,11 @@
-import { Route } from '@/types';
 import type { Context } from 'hono';
 
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+
 import { assetsConnectionByCriteriaQuery } from './query';
 import { getItem } from './utils';
 
@@ -31,7 +33,7 @@ export const route: Route = {
 };
 
 async function handler(ctx: Context) {
-    const limit = Number.parseInt(ctx.req.query('limit') ?? '10');
+    const limit = getRouteLimit(ctx, 10);
     const response = await ofetch('https://api.afr.com/graphql', {
         query: {
             query: assetsConnectionByCriteriaQuery,
@@ -39,7 +41,7 @@ async function handler(ctx: Context) {
             variables: {
                 brand: 'afr',
                 first: limit,
-                render: 'web',
+                render: 'WEB',
                 types: ['article', 'bespoke', 'featureArticle', 'liveArticle', 'video'],
                 after: '',
             },

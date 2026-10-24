@@ -1,6 +1,7 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import { rootUrl, apiRootUrl, types, ProcessThreads } from './utils';
+import type { Route } from '@/types';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import { apiRootUrl, ProcessThreads, rootUrl, types } from './utils';
 
 const sections = {
     257: '留学申请',
@@ -36,42 +37,43 @@ export const route: Route = {
     handler,
     description: `分区
 
-  | 分区     | id  |
-  | -------- | --- |
-  | 留学申请 | 257 |
-  | 世界公民 | 379 |
-  | 投资理财 | 400 |
-  | 生活干货 | 31  |
-  | 职场达人 | 345 |
-  | 人际关系 | 391 |
-  | 海外求职 | 38  |
-  | 签证移民 | 265 |
+| 分区     | id  |
+| -------- | --- |
+| 留学申请 | 257 |
+| 世界公民 | 379 |
+| 投资理财 | 400 |
+| 生活干货 | 31  |
+| 职场达人 | 345 |
+| 人际关系 | 391 |
+| 海外求职 | 38  |
+| 签证移民 | 265 |
 
-  分类
+分类
 
-  | 热门帖子 | 最新帖子 |
-  | -------- | -------- |
-  | hot      | new      |
+| 热门帖子 | 最新帖子 |
+| -------- | -------- |
+| hot      | new      |
 
-  排序方式
+排序方式
 
-  | 最新回复 | 最新发布 |
-  | -------- | -------- |
-  |          | post     |`,
+| 最新回复 | 最新发布 |
+| -------- | -------- |
+|          | post     |`,
 };
 
 async function handler(ctx) {
     const id = ctx.req.param('id') ?? '';
     const type = ctx.req.param('type') ?? 'hot';
     const order = ctx.req.param('order') ?? '';
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 10;
+    const limit = getRouteLimit(ctx, 10);
+    const isTag = Number.isNaN(Number(id));
 
-    const currentUrl = `${rootUrl}${id ? (isNaN(id) ? `/category/${id}` : `/section/${id}`) : ''}`;
-    const apiUrl = `${apiRootUrl}/api${id ? (isNaN(id) ? `/tags/${id}/` : `/forums/${id}/`) : ''}threads?type=${type}&includes=tags,forum_name,summary&ps=${limit}&pg=1&order=${order === '' ? '' : 'time_desc'}&is_groupid=1`;
+    const currentUrl = `${rootUrl}${id ? (isTag ? `/category/${id}` : `/section/${id}`) : ''}`;
+    const apiUrl = `${apiRootUrl}/api/${id ? (isTag ? `tags/${id}/` : `forums/${id}/`) : ''}threads?type=${type}&includes=tags,forum_name,summary&ps=${limit}&pg=1&order=${order === '' ? '' : 'time_desc'}&is_groupid=1`;
 
     return {
         title: `一亩三分地 - ${Object.hasOwn(sections, id) ? sections[id] : id}${types[type]}`,
         link: currentUrl,
-        item: await ProcessThreads(cache.tryGet, apiUrl, order),
+        item: await ProcessThreads(apiUrl, order),
     };
 }

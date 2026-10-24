@@ -1,8 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 import timezone from '@/utils/timezone';
 
 export const route: Route = {
@@ -30,7 +32,7 @@ export const route: Route = {
 
 async function handler(ctx) {
     const id = ctx.req.param('id');
-    const limit = Number.parseInt(ctx.req.query('limit')) || 10;
+    const limit = getRouteLimit(ctx, 10);
 
     const baseUrl = 'https://wap.ciweimao.com';
     const chapterUrl = 'https://mip.ciweimao.com';
@@ -39,7 +41,7 @@ async function handler(ctx) {
     const $ = load(response);
 
     const firstChapterUrl = $('ul.catalogue-list li a').attr('href');
-    const firstChapterId = firstChapterUrl.substring(firstChapterUrl.lastIndexOf('/') + 1);
+    const firstChapterId = firstChapterUrl!.slice(firstChapterUrl!.lastIndexOf('/') + 1);
 
     const { data: chapters } = await got(`${chapterUrl}/chapter/${id}/${firstChapterId}`);
     const $c = load(chapters);
@@ -47,19 +49,19 @@ async function handler(ctx) {
     const list = $c('ul.book-chapter li a')
         .slice(-limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem & { chapterLocked: boolean } => {
+            const $item = $(item);
             return {
-                chapterLocked: item.find('h3 i.icon-lock').length > 0,
-                title: item.find('h3').text(),
-                pubDate: timezone(parseDate(item.find('p').text().replace('发布于 ', '')), +8),
-                link: item.attr('href'),
+                chapterLocked: $item.find('h3 i.icon-lock').length > 0,
+                title: $item.find('h3').text(),
+                pubDate: timezone(parseDate($item.find('p').text().replace('发布于 ', '')), 8),
+                link: $item.attr('href'),
             };
         });
 
     const items = await Promise.all(
         list.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 if (item.chapterLocked) {
                     return item;
                 }

@@ -1,10 +1,11 @@
-import { Route } from '@/types';
-import { parseDate } from '@/utils/parse-date';
-import ofetch from '@/utils/ofetch';
 import { load } from 'cheerio';
 
+import type { Route } from '@/types';
+import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
+
 export const route: Route = {
-    path: 'anime/:category/:name',
+    path: '/anime/:category/:name',
     name: 'Anime',
     url: 'anime1.me',
     maintainers: ['cxheng315'],
@@ -38,13 +39,13 @@ async function handler(ctx) {
 
     const $ = load(response);
 
-    const title = $('.page-title').text().trim();
+    const title = $('.page-title').text();
 
     const items = $('article')
         .toArray()
         .map((el) => {
             const $el = $(el);
-            const title = $el.find('.entry-title a').text().trim();
+            const title = $el.find('.entry-title a').text();
             return {
                 title,
                 link: $el.find('.entry-title a').attr('href'),

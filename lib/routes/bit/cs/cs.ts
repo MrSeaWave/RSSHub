@@ -1,7 +1,9 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
+
 import util from './utils';
 
 export const route: Route = {
@@ -36,10 +38,9 @@ async function handler() {
     });
 
     const $ = load(response.data);
+    const list = $('.sub_054_2 ul > li').toArray();
 
-    const list = $('.box_list01 li').toArray();
-
-    const result = await util.ProcessFeed(list, cache);
+    const result = await util.processFeed(list, cache);
 
     return {
         title: $('title').text(),

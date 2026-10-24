@@ -1,7 +1,8 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
-import utils from './utils';
+
 import cache from './cache';
+import utils from './utils';
 
 export const route: Route = {
     path: '/live/search/:key/:order',
@@ -10,7 +11,7 @@ export const route: Route = {
     parameters: { key: '搜索关键字', order: '排序方式, live_time 开播时间, online 人气' },
     features: {
         requireConfig: false,
-        requirePuppeteer: false,
+        requirePuppeteer: true,
         antiCrawler: false,
         supportBT: false,
         supportPodcast: false,
@@ -26,7 +27,7 @@ async function handler(ctx) {
     const order = ctx.req.param('order');
 
     const urlEncodedKey = encodeURIComponent(key);
-    let orderTitle = '';
+    let orderTitle: string;
 
     switch (order) {
         case 'live_time':
@@ -35,6 +36,8 @@ async function handler(ctx) {
         case 'online':
             orderTitle = '人气直播';
             break;
+        default:
+            throw new Error(`Unknown order: ${order}`);
     }
     const wbiVerifyString = await cache.getWbiVerifyString();
     let params = `__refresh__=true&_extra=&context=&page=1&page_size=42&order=${order}&duration=&from_source=&from_spmid=333.337&platform=pc&highlight=1&single_column=0&keyword=${urlEncodedKey}&ad_resource=&source_tag=3&gaia_vtoken=&category_id=&search_type=live&dynamic_offset=0&web_location=1430654`;

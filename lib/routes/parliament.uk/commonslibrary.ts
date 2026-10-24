@@ -1,16 +1,16 @@
-import { load } from 'cheerio';
-import { Route } from '@/types';
-import puppeteer from '@/utils/puppeteer';
-import timezone from '@/utils/timezone';
+import type { Data, Route } from '@/types';
+import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
+import parser from '@/utils/rss-parser';
 
 export const route: Route = {
     path: '/commonslibrary/type/:topic?',
     categories: ['government'],
     example: '/parliament.uk/commonslibrary/type/research-briefing',
-    parameters: { topic: 'research by topic, string, example: [research-briefing|data-dashboard]' },
+    parameters: { topic: 'Publication type, research-briefing by default' },
     features: {
         requireConfig: false,
-        requirePuppeteer: true,
+        requirePuppeteer: false,
         antiCrawler: false,
         supportBT: false,
         supportPodcast: false,
@@ -22,34 +22,31 @@ export const route: Route = {
 };
 
 async function handler(ctx) {
-    const { topic } = ctx.req.param();
-    const baseUrl = 'https://commonslibrary.parliament.uk';
-    const url = `${baseUrl}/type/${topic}/`;
-    const browser = await puppeteer();
-    const page = await browser.newPage();
-    await page.setRequestInterception(true);
-    page.on('request', (request) => {
-        request.resourceType() === 'document' ? request.continue() : request.abort();
-    });
-    await page.goto(url, {
-        waitUntil: 'domcontentloaded',
-    });
+    const { topic = 'research-briefing' } = ctx.req.param();
+    const url = `https://commonslibrary.parliament.uk/type/${topic}/`;
+    const response = await ofetch(`${url}feed/`, { responseType: 'text' });
+    const feed = await parser.parseString(response);
+    if (!feed.title) {
+        throw new Error(`The official library feed at ${url}feed/ is missing its title.`);
+    }
 
-    const html = await page.evaluate(() => document.documentElement.innerHTML);
-    await page.close();
-    const $ = load(html);
-    const items = $('div.l-box.l-box--no-border.card__text')
-        .toArray()
-        .map((article) => ({
-            title: $(article).find('.card__text a').text().trim(),
-            link: $(article).find('.card__text a').attr('href'),
-            description: $(article).find('p').last().text().trim(),
-            pubDate: timezone($(article).find('.card__date time').attr('datetime')),
-        }));
-    browser.close();
     return {
-        title: `parliament - lordslibrary - ${topic}`,
+        title: feed.title,
         link: url,
-        item: items,
-    };
+        description: feed.description,
+        language: 'en',
+        item: feed.items.flatMap((item) => {
+            if (!item.title || !item.link) {
+                return [];
+            }
+            return {
+                title: item.title,
+                link: item.link,
+                guid: item.guid,
+                author: item.creator || undefined,
+                description: item['content:encoded'] ?? item.content,
+                pubDate: item.pubDate ? parseDate(item.pubDate) : undefined,
+            };
+        }),
+    } satisfies Data;
 }

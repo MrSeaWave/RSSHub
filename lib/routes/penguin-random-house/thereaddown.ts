@@ -1,7 +1,9 @@
-import { Route } from '@/types';
-import utils from './utils';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
 import got from '@/utils/got';
+
+import utils from './utils';
 
 export const route: Route = {
     path: '/the-read-down',
@@ -33,17 +35,17 @@ async function handler(ctx) {
     const $ = load(res.data);
 
     const itemArray = $('.archive-module-half-container,.archive-module-third-container')
-        .map(function () {
-            return {
-                url: $(this).find('a').attr('href'),
-                title: $(this).find('.archive-module-text').first().text(),
-            };
-        })
-        .get();
+        .toArray()
+        .map((element) => ({
+            url: $(element).find('a').attr('href'),
+            title: $(element).find('.archive-module-text').not('.full').first().text(),
+            category: $(element).find('.module-label').first().text().trim() || undefined,
+        }));
 
     const out = await utils.parseList(itemArray, ctx, utils.parseBooks);
 
     return {
+        language: 'en' as const,
         title: 'Penguin Random House Book Lists',
         link,
         description: 'Never wonder what to read next! Check out these lists to find your next favorite book.',

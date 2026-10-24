@@ -1,4 +1,4 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
@@ -23,12 +23,11 @@ export const route: Route = {
     handler,
     url: 'www.bing.com/',
     example: '/bing/type=UHD&story=1&lang=zh-CN',
-    description: `| 参数    | 含义                 | 接受的值                                                      | 默认值       | 备注                                                     |
-|-------|--------------------|-----------------------------------------------------------|-----------|--------------------------------------------------------|
-| type  | 输出壁纸的像素类型          | UHD/1920x1080/1920x1200/768x1366/1080x1920/1080x1920_logo | 1920x1080 | 1920x1200与1080x1920_logo带有水印,输入的值不在接受范围内都会输出成1920x1080 |
-| story | 是否输出壁纸的故事          | 1/0                                                       | 0         | 输入的值不为1都不会输出故事                                         |
-| lang  | 输出壁纸图文的地区(中文或者是英文) | zh/en                                               | zh     | zh/en输出的壁纸图文不一定是一样的;如果en不生效,试着部署到其他地方               |
-`,
+    description: `| 参数  | 含义                                | 接受的值                                                   | 默认值    | 备注                                                                              |
+| ----- | ----------------------------------- | ---------------------------------------------------------- | --------- | --------------------------------------------------------------------------------- |
+| type  | 输出壁纸的像素类型                  | UHD/1920x1080/1920x1200/768x1366/1080x1920/1080x1920\\_logo | 1920x1080 | 1920x1200 与 1080x1920\\_logo 带有水印，输入的值不在接受范围内都会输出成 1920x1080 |
+| story | 是否输出壁纸的故事                  | 1/0                                                        | 0         | 输入的值不为 1 都不会输出故事                                                     |
+| lang  | 输出壁纸图文的地区 (中文或者是英文) | zh/en                                                      | zh        | zh/en 输出的壁纸图文不一定是一样的；如果 en 不生效，试着部署到其他地方            |`,
 };
 
 async function handler(ctx) {
@@ -60,6 +59,7 @@ async function handler(ctx) {
     });
     const items = resp.MediaContents.map((item) => {
         const ssd = item.Ssd;
+        const date = ssd ? parseDate(ssd, ['YYYYMMDD_HHmm', 'YYYYMMDD'], true) : undefined;
         const link = `${apiUrl}${item.ImageContent.Image.Url.match(/\/th\?id=[^_]+_[^_]+/)[0].replace(/(_\d+x\d+\.webp)$/i, '')}_${type}.jpg`;
         let description = `<img width="1920" height="1080" src="${link}" alt="Article Cover Image" style="display: block; margin: 0 auto;"><br>`;
         if (story) {
@@ -72,7 +72,7 @@ async function handler(ctx) {
             description,
             link: `${apiUrl}${item.ImageContent.BackstageUrl}`,
             author: item.ImageContent.Copyright,
-            pubDate: timezone(parseDate(ssd, 'YYYYMMDD_HHmm'), 0),
+            pubDate: date && Number.isFinite(date.getTime()) ? timezone(date, 0) : undefined,
         };
     });
     return {

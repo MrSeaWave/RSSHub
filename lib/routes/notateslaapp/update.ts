@@ -1,6 +1,7 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 
 export const route: Route = {
     path: '/ota',
@@ -38,24 +39,24 @@ async function handler() {
     const data = response.data;
 
     const $ = load(data);
-    const list = $('article[id]');
+    const list = $('article[id] .notes-container')
+        .toArray()
+        .filter((item, index, items) => {
+            const link = $(item).find('.button-container > a').attr('href');
+            return link && items.findIndex((entry) => $(entry).find('.button-container > a').attr('href') === link) === index;
+        });
 
     return {
         title: '特斯拉系统更新',
         link: 'https://www.notateslaapp.com/software-updates/history/',
         description: '特斯拉系统更新 - 最新发布',
-        item:
-            list &&
-            list
-                .map((index, item) => {
-                    item = $(item);
-                    return {
-                        title: item.find('.container h1').text(),
-                        description: item.find('.notes-container').text(),
-                        pubDate: null,
-                        link: item.find('.notes-container > .button-container > a').attr('href'),
-                    };
-                })
-                .get(),
+        item: list.map((item) => {
+            const $item = $(item);
+            return {
+                title: $item.find('h4').text(),
+                description: $item.find('.release-notes').html(),
+                link: $item.find('.button-container > a').attr('href'),
+            };
+        }),
     };
 }

@@ -1,8 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/news/:category?',
@@ -21,13 +24,13 @@ export const route: Route = {
     maintainers: ['nczitzk'],
     handler,
     description: `| 通知公告 | 新闻动态 | 信息公开 | 时政要闻 |
-  | -------- | -------- | -------- | -------- |
-  | 3        | 2        | 92       | 93       |`,
+| -------- | -------- | -------- | -------- |
+| 3        | 2        | 92       | 93       |`,
 };
 
 async function handler(ctx) {
     const { category = '3' } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 15;
+    const limit = getRouteLimit(ctx, 15);
 
     const rootUrl = 'http://www.casssp.org.cn';
     const currentUrl = new URL(`news/${category}/`, rootUrl).href;
@@ -39,24 +42,25 @@ async function handler(ctx) {
     let items = $('p.e_text-22.s_title a, p.e_text-18.s_title a')
         .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
+            const date = $item.closest('.s_layout').find('[class*="e_timeFormat-"]').text().trim();
 
             return {
-                title: item.text(),
-                link: new URL(item.prop('href'), rootUrl).href,
+                title: $item.text(),
+                link: new URL($item.prop('href')!, rootUrl).href,
+                pubDate: date ? timezone(parseDate(date, 'YYYY-MM-DD'), 8) : undefined,
             };
         });
 
     items = await Promise.all(
         items.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 const { data: detailResponse } = await got(item.link);
 
                 const content = load(detailResponse);
 
                 item.description = content('div.e_richText-25, div.e_richText-3').html();
-                item.pubDate = parseDate(`${content('p.e_timeFormat-15').text()}-${content('p.e_timeFormat-14').text()}-${content('p.e_timeFormat-11').text()}`);
 
                 return item;
             })
@@ -64,14 +68,15 @@ async function handler(ctx) {
     );
 
     const image = $('img[la="la"]').first().prop('src');
-    const icon = new URL($('link[rel="shortcut icon "]').prop('href'), rootUrl).href;
+    const iconHref = $('link[rel~="icon"]').first().prop('href');
+    const icon = iconHref ? new URL(iconHref, rootUrl).href : undefined;
 
     return {
         item: items,
         title: $('title').text(),
         link: currentUrl,
         description: $('meta[name="description"]').prop('content'),
-        language: $('html').prop('lang'),
+        language: $('html').prop('lang') as Language,
         image,
         icon,
         logo: icon,

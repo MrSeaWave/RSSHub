@@ -1,11 +1,16 @@
-import { Route } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
-
+import type { Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import { art } from '@/utils/render';
-import path from 'node:path';
+
+import { renderDescription } from './templates/description';
+
+const types = { mp3: 'audio/mpeg', mp4: 'audio/mp4', m4a: 'audio/mp4', m3u8: 'application/vnd.apple.mpegurl' } satisfies Record<string, string>;
+const isAudioExtension = (key: string): key is keyof typeof types => Object.hasOwn(types, key);
+
+export const getAudioType = (url: string) => {
+    const extension = new URL(url).pathname.split('.').pop()?.toLowerCase() ?? '';
+    return isAudioExtension(extension) ? types[extension] : undefined;
+};
 
 export const route: Route = {
     path: '/:id',
@@ -25,18 +30,19 @@ export const route: Route = {
     handler,
     description: `如果订阅 [共和国追梦人](http://www.radio.cn/pc-portal/sanji/detail.html?columnId=1552135)，其 URL 为 \`https://www.radio.cn/pc-portal/sanji/detail.html?columnId=1552135\`，可以得到 \`columnId\` 为 \`1552135\`
 
-  所以对应路由为 [\`/radio/1552135\`](https://rsshub.app/radio/1552135)
+所以对应路由为 [\`/radio/1552135\`](https://rsshub.app/radio/1552135)
 
-  :::tip
-  该路由仅适用于更新时间较早的电台节目，如 [共和国追梦人](http://www.radio.cn/pc-portal/sanji/detail.html?columnId=1552135)
+::: tip
+该路由仅适用于更新时间较早的电台节目，如 [共和国追梦人](http://www.radio.cn/pc-portal/sanji/detail.html?columnId=1552135)
 
-  与适用于 [专辑](#yun-ting-zhuan-ji) 路由的专辑其 \`columnId\` 长度相比，它们的 \`columnId\` 长度较短
-  :::`,
+与适用于 [专辑](#yun-ting-zhuan-ji) 路由的专辑其 \`columnId\` 长度相比，它们的 \`columnId\` 长度较短
+:::`,
 };
 
 async function handler(ctx) {
     const id = ctx.req.param('id');
-    const size = ctx.req.query('limit') ?? '100';
+    const requestedLimit = Number(ctx.req.query('limit'));
+    const size = Number.isFinite(requestedLimit) && Math.floor(requestedLimit) > 0 ? Math.floor(requestedLimit) : 100;
 
     const rootUrl = 'https://www.radio.cn';
     const apiRootUrl = 'http://tacc.radio.cn';
@@ -56,13 +62,13 @@ async function handler(ctx) {
 
     const items = data.program.map((item) => {
         const enclosure_url = item.streams[0].url;
-        const enclosure_type = `audio/${enclosure_url.match(/\.(\w+)$/)[1]}`;
+        const enclosure_type = getAudioType(enclosure_url);
 
         return {
             guid: item.id,
             title: item.name,
             link: item.streams[0].url,
-            description: art(path.join(__dirname, 'templates/description.art'), {
+            description: renderDescription({
                 description: item.description,
                 enclosure_url,
                 enclosure_type,

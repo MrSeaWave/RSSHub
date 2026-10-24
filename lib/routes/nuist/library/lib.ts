@@ -1,19 +1,24 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import { parseDate } from '@/utils/parse-date';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
+import cache from '@/utils/cache';
+
+import got, { parseCampusDate } from '../utils';
+
 const baseTitle = '南京信息工程大学图书馆通知';
 const baseUrl = 'https://lib.nuist.edu.cn';
 
 export const route: Route = {
     path: '/lib',
+    categories: ['university'],
+    example: '/nuist/lib',
     radar: [
         {
             source: ['lib.nuist.edu.cn/', 'lib.nuist.edu.cn/index/tzgg.htm'],
         },
     ],
-    name: 'Unknown',
+    name: '图书馆',
     maintainers: ['gylidian'],
     handler,
     url: 'lib.nuist.edu.cn/',
@@ -26,28 +31,27 @@ async function handler() {
     const $ = load(response.data);
     const list = $('.list2 li')
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem & { link: string } => {
+            const $item = $(item);
 
             return {
-                title: item.find('a').attr('title'),
+                title: $item.find('a').attr('title')!,
                 category: '通知',
-                link: new URL(item.find('a').attr('href'), link).href,
+                link: new URL($item.find('a').attr('href')!, link).href,
             };
         });
 
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
+    const items = await pMap(
+        list,
+        async (item) => ({
+            ...item,
+            ...(await cache.tryGet(item.link + ':content', async () => {
                 const response = await got(item.link);
                 const $ = load(response.data);
-
-                item.description = $('#vsb_content').html();
-                item.pubDate = parseDate($('.date').find('span').eq(0).text(), 'YYYY年MM月DD日');
-
-                return item;
-            })
-        )
+                return { description: $('[id^="vsb_content"]').first().html(), pubDate: parseCampusDate($('.date').find('span').eq(0).text()) };
+            })),
+        }),
+        { concurrency: 3 }
     );
 
     return {

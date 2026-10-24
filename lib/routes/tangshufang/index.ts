@@ -1,8 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
     path: '/:category?',
@@ -19,28 +21,28 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['tangshufang.com/:category', 'tangshufang.com/'],
+            source: ['tangshufang.com/:category'],
         },
     ],
     name: '分类',
     maintainers: ['nczitzk'],
     handler,
     description: `| 首页 | 老唐实盘 | 书房拾遗 | 理念 & 估值 | 经典陪读 | 财务套利 |
-  | ---- | -------- | -------- | ----------- | -------- | -------- |
-  |      | shipan   | wenda    | linian      | peidu    | taoli    |
+| ---- | -------- | -------- | ----------- | -------- | -------- |
+|      | shipan   | wenda    | linian      | peidu    | taoli    |
 
-  | 企业分析 | 白酒企业 | 腾讯控股 | 分众传媒 | 海康威视 | 其他企业 |
-  | -------- | -------- | -------- | -------- | -------- | -------- |
-  | qiye     | baijiu   | tengxun  | fenzhong | haikang  | qita     |
+| 企业分析 | 白酒企业 | 腾讯控股 | 分众传媒 | 海康威视 | 其他企业 |
+| -------- | -------- | -------- | -------- | -------- | -------- |
+| qiye     | baijiu   | tengxun  | fenzhong | haikang  | qita     |
 
-  | 核心五篇 | 读者投稿 | 读书随笔 | 财报浅析 | 出行游记 | 巴芒连载 |
-  | -------- | -------- | -------- | -------- | -------- | -------- |
-  | hexin    | tougao   | suibi    | caibao   | youji    | bamang   |`,
+| 核心五篇 | 读者投稿 | 读书随笔 | 财报浅析 | 出行游记 | 巴芒连载 |
+| -------- | -------- | -------- | -------- | -------- | -------- |
+| hexin    | tougao   | suibi    | caibao   | youji    | bamang   |`,
 };
 
 async function handler(ctx) {
     const category = ctx.req.param('category') ?? '';
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 10;
+    const limit = getRouteLimit(ctx, 10);
 
     const rootUrl = 'https://www.tangshufang.com';
     const currentUrl = `${rootUrl}${category ? `/${category}` : ''}`;
@@ -55,21 +57,21 @@ async function handler(ctx) {
     let items = $('article')
         .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
-            const a = item.find('h2 a');
+            const a = $item.find('h2 a');
 
             return {
                 title: a.text(),
                 link: a.attr('href'),
-                pubDate: parseDate(item.find('time').text()),
+                pubDate: parseDate($item.find('time').text()),
             };
         });
 
     items = await Promise.all(
         items.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,

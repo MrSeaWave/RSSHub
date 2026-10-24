@@ -1,6 +1,6 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { config } from '@/config';
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -87,7 +87,6 @@ async function handler(ctx) {
             };
         });
     return {
-        allowEmpty: true,
         title: `${user}'s GitHub repositories`,
         link: `https://github.com/${user}`,
         item,

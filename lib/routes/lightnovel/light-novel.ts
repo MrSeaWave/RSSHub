@@ -1,19 +1,27 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import { parseDate } from '@/utils/parse-date';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
 import { config } from '@/config';
+import type { Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
     path: '/:keywords/:security_key?',
+    categories: ['anime'],
+    example: '/lightnovel/歡迎來到實力至上主義的教室/3cfc2dc63f3575ee42e12823188ad1b5:1709125:0',
+    parameters: {
+        keywords: '关键字，可以模糊匹配，但最好精确匹配',
+        security_key: 'cookie,由于文章有防爬，所以必须携带cookie请求。route中的cookie优先级高于环境变量cookie，取token中的security_key值',
+    },
     radar: [
         {
             source: ['lightNovel.us/'],
             target: '/:keywords/:security_key',
         },
     ],
-    name: 'Unknown',
+    name: '文章更新阅读',
     maintainers: ['nightmare-mio'],
     handler,
     url: 'lightNovel.us/',
@@ -21,7 +29,7 @@ export const route: Route = {
 
 async function handler(ctx) {
     const baseUrl = 'https://www.lightnovel.us';
-    const { type, keywords, security_key = config.lightnovel.cookie } = ctx.req.param();
+    const { keywords, security_key = config.lightnovel.cookie } = ctx.req.param();
     const { data: response } = await got({
         method: 'POST',
         url: `${baseUrl}/proxy/api/search/search-result`,
@@ -50,11 +58,11 @@ async function handler(ctx) {
             pubDate: parseDate(item.time),
             author: item.author,
         }))
-        .slice(0, ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 5);
+        .slice(0, getRouteLimit(ctx, 5));
 
     const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
+        list.map(async (item) => {
+            const description = await cache.tryGet(`lightnovel:body:${item.link}`, async () => {
                 const { data: response } = await got({
                     method: 'GET',
                     url: item.link,
@@ -64,14 +72,14 @@ async function handler(ctx) {
                 });
 
                 const $ = load(response);
-                item.description = $('#article-main-contents').html();
-                return item;
-            })
-        )
+                return $('#article-main-contents').html();
+            });
+            return { ...item, description };
+        })
     );
 
     return {
-        title: `轻之国度-追踪${keywords}更新-${type} `,
+        title: `轻之国度-追踪${keywords}更新`,
         link: baseUrl,
         item: items,
     };

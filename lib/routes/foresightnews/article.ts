@@ -1,9 +1,10 @@
-import { Route } from '@/types';
-import { rootUrl, apiRootUrl, processItems, icon, image } from './util';
+import type { Language, Route } from '@/types';
+
+import { apiRootUrl, icon, image, processItems, rootUrl } from './util';
 
 export const route: Route = {
     path: '/article',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/foresightnews/article',
     parameters: {},
     features: {
@@ -26,22 +27,19 @@ export const route: Route = {
 };
 
 async function handler(ctx) {
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 50;
-
     const apiUrl = new URL('v1/articles', apiRootUrl).href;
 
-    const { items } = await processItems(apiUrl, limit);
+    const { items } = await processItems(apiUrl, ctx);
 
     return {
         item: items,
         title: 'Foresight News - 文章',
         link: rootUrl,
         description: '文章 - Foresight News',
-        language: 'zh-cn',
+        language: 'zh-CN' as const satisfies Language,
         image,
         icon,
         logo: icon,
-        subtitle: '文章',
         author: 'Foresight News',
     };
 }

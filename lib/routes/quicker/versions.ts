@@ -1,11 +1,15 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import { parseDate } from '@/utils/parse-date';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
+
+import { parseDateText } from './utils';
 
 export const route: Route = {
-    path: ['/update', '/versions'],
-    name: 'Unknown',
+    path: '/versions',
+    categories: ['program-update'],
+    example: '/quicker/versions',
+    name: '版本更新',
     maintainers: ['Cesaryuan', 'nczitzk'],
     handler,
     url: 'getquicker.net/Help/Versions',
@@ -25,15 +29,15 @@ async function handler() {
     const items = $('.version')
         .toArray()
         .map((item) => {
-            item = $(item);
+            const $item = $(item);
 
-            const a = item.find('h2 a');
+            const a = $item.find('h2 a');
 
             return {
                 title: a.text().trim(),
                 link: `${rootUrl}${a.attr('href')}`,
-                description: item.find('.article-content').html(),
-                pubDate: parseDate(item.find('.text-secondary').first().text()),
+                description: $item.find('.article-content').html(),
+                pubDate: parseDateText($item.find('.text-secondary').first().text()),
             };
         });
 

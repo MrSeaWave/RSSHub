@@ -1,7 +1,10 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import ofetch from '@/utils/ofetch';
-import { host, acw_sc__v2, parseList, parseItems } from './utils';
+
+import { acw_sc__v2, host, parseItems, parseList } from './utils';
 
 export const route: Route = {
     path: '/user/:name',
@@ -28,17 +31,16 @@ export const route: Route = {
 
 async function handler(ctx) {
     const name = ctx.req.param('name');
-    const apiURL = `${host}/gateway/homepage/${name}/timeline?size=20&offset=`;
-
-    const response = await ofetch(apiURL);
-    const data = response.rows;
+    const response = await ofetch(`${host}/u/${name}`);
+    const $ = load(response);
+    const data = JSON.parse($('#__NEXT_DATA__').text()).props.pageProps.initialState.personal.listInfo.timeline.rows;
 
     const list = parseList(data);
     const { author } = list[0];
 
-    const acwScV2Cookie = await acw_sc__v2(list[0].link, cache.tryGet);
+    const acwScV2Cookie = await acw_sc__v2(list[0].link);
 
-    const items = await Promise.all(list.map((item) => parseItems(acwScV2Cookie, item, cache.tryGet)));
+    const items = await pMap(list, (item) => parseItems(acwScV2Cookie, item), { concurrency: 3 });
 
     return {
         title: `segmentfault - ${author}`,

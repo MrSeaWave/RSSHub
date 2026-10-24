@@ -1,21 +1,25 @@
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
-
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import { parseDate } from '@/utils/parse-date';
-import { art } from '@/utils/render';
-import path from 'node:path';
 import CryptoJS from 'crypto-js';
+import { getMimeType } from 'hono/utils/mime';
+
+import type { DataItem } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+
+import { renderDescription } from './templates/description';
 
 const domain = 'huxiu.com';
 const rootUrl = `https://www.${domain}`;
 
-const apiArticleRootUrl = `https://api-article.${domain}`;
-const apiBriefRootUrl = `https://api-brief.${domain}`;
+const apiArticleRootUrl = `https://api-web-article.${domain}`;
+const apiClubRootUrl = `https://api-ms-web-club.${domain}`;
 const apiMemberRootUrl = `https://api-account.${domain}`;
 const apiMomentRootUrl = `https://moment-api.${domain}`;
 const apiSearchRootUrl = `https://search-api.${domain}`;
+const siteTitle = '虎嗅';
+
+type ItemEnclosure = Pick<DataItem, 'enclosure_length' | 'enclosure_type' | 'enclosure_url' | 'itunes_duration' | 'itunes_item_image'>;
 
 /**
  * Cleans up HTML data by removing specific elements and attributes.
@@ -29,153 +33,240 @@ const cleanUpHTML = (data) => {
     $('div.neirong-shouquan').remove();
     $('em.vote__bar, div.vote__btn, div.vote__time').remove();
     $('p img').each((_, e) => {
-        e = $(e);
-        e.parent().replaceWith(
-            art(path.join(__dirname, 'templates/description.art'), {
-                image: {
-                    src: (e.prop('src') ?? e.prop('_src')).split(/\?/)[0],
-                    width: e.prop('data-w'),
-                    height: e.prop('data-h'),
-                },
-            })
-        );
+        const $e = $(e);
+        const src = $e.prop('src') || $e.prop('_src');
+        if (src) {
+            const paragraph = $e.closest('p')[0];
+            if (paragraph && 'tagName' in paragraph) {
+                paragraph.tagName = 'div';
+            }
+            $e.replaceWith(
+                renderDescription({
+                    image: {
+                        src: src.split(/\?/, 1)[0],
+                        width: $e.prop('data-w'),
+                        height: $e.prop('data-h'),
+                    },
+                })
+            );
+        } else {
+            $e.remove();
+        }
     });
     $('p, span').each((_, e) => {
-        e = $(e);
-        if (e.contents().length === 1 && /^\s*$/.test(e.text())) {
-            e.remove();
+        const $e = $(e);
+        if ($e.contents().length === 1 && /^\s*$/.test($e.text())) {
+            $e.remove();
         } else {
-            e.removeClass();
-            e.removeAttr('data-check-id label class');
+            $e.removeClass();
+            $e.removeAttr('data-check-id label class');
         }
     });
     $('.text-big-title').each((_, e) => {
         e.tagName = 'h3';
-        e = $(e);
-        e.removeClass();
-        e.removeAttr('class');
+        const $e = $(e);
+        $e.removeClass();
+        $e.removeAttr('class');
     });
     $('.text-sm-title').each((_, e) => {
         e.tagName = 'h4';
-        e = $(e);
-        e.removeClass();
-        e.removeAttr('class');
+        const $e = $(e);
+        $e.removeClass();
+        $e.removeAttr('class');
     });
 
     return $.html();
 };
 
-/**
- * Fetch brief column data for the specified ID.
- *
- * @param {string} url - The ID of the brief column to fetch data from.
- * @returns {Promise<Object>} A promise that resolves to an object containing the fetched data
- *                            to be added into `ctx.state.data`.
- */
-const fetchBriefColumnData = async (id) => {
-    const apiBriefColumnUrl = new URL('briefColumn/detail', apiBriefRootUrl).href;
+const parsePublicationDate = (value: string | number | undefined) => {
+    if (([undefined, null, ''] as unknown[]).includes(value)) {
+        return;
+    }
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) {
+        return;
+    }
+    const date = parseDate(timestamp, 'X');
+    return Number.isFinite(date.getTime()) ? date : undefined;
+};
 
-    const {
-        data: { data },
-    } = await got.post(apiBriefColumnUrl, {
-        form: {
-            platform: 'www',
-            brief_column_id: id,
-        },
+const normalizeText = (value?: string) => {
+    if (!value) {
+        return;
+    }
+
+    return load(value).text().trim() || undefined;
+};
+
+const buildRouteData = ({ title, link, description, image, icon, subtitle, author }: { title: string; link: string; description?: string; image?: string; icon?: string; subtitle?: string; author?: string }) => ({
+    title,
+    link,
+    description,
+    language: 'zh-CN' as const,
+    image,
+    icon,
+    logo: icon,
+    subtitle: subtitle ?? title,
+    author,
+    itunes_author: author,
+    itunes_category: 'News',
+});
+
+const prefixValue = (value?: string, prefix?: string) => {
+    if (!value || !prefix) {
+        return value;
+    }
+
+    return value.startsWith(prefix) ? value : `${prefix}${value}`;
+};
+
+const buildHuxiuRouteTitlePrefix = (routeName: string) => `${siteTitle}${routeName}-`;
+
+const buildFeedMetadata = ({
+    title,
+    link,
+    description,
+    image,
+    subtitle,
+    author,
+    titlePrefix,
+    descriptionPrefix,
+}: {
+    title: string;
+    link: string;
+    description?: string;
+    image?: string;
+    subtitle?: string;
+    author?: string;
+    titlePrefix?: string;
+    descriptionPrefix?: string;
+}) => {
+    const baseTitle = title;
+    const baseDescription = normalizeText(description) ?? description ?? subtitle ?? title;
+    const resolvedTitle = prefixValue(baseTitle, titlePrefix) ?? baseTitle;
+    const resolvedDescription = prefixValue(baseDescription, descriptionPrefix) ?? baseDescription;
+    const resolvedSubtitle = subtitle ?? baseTitle;
+
+    return buildRouteData({
+        title: resolvedTitle,
+        link,
+        description: resolvedDescription,
+        image,
+        icon: image,
+        subtitle: resolvedSubtitle,
+        author,
+    });
+};
+
+const fetchApiRouteData = async <T>({
+    currentUrl,
+    apiUrl,
+    form,
+    mapData,
+}: {
+    currentUrl: string;
+    apiUrl: string;
+    form: Record<string, string | number>;
+    mapData: (data: T) => {
+        title: string;
+        description?: string;
+        image?: string;
+        subtitle?: string;
+        author?: string;
+        titlePrefix?: string;
+        descriptionPrefix?: string;
+    };
+}) => {
+    const { data: response }: { data: { data: T } } = await got.post(apiUrl, { form });
+
+    return buildFeedMetadata({
+        link: currentUrl,
+        ...mapData(response.data),
+    });
+};
+
+/**
+ * Builds category array from article data.
+ *
+ * @param {Object} data - The article data.
+ * @returns {string[]} - Array of category names.
+ */
+const buildCategories = (data) => [data.video_article_tag, data.brief_column?.name, data.club_info?.name, ...(data.tags_info?.map((c) => c.name) ?? []), ...(data.relation_info?.channel?.map((c) => c.name) ?? [])].filter(Boolean);
+
+const extractArticleId = (link: string) => {
+    const pathname = new URL(link).pathname;
+    return pathname.match(/^\/article\/(\d+)\.html$/)?.[1];
+};
+
+const extractBriefId = (link: string) => {
+    const pathname = new URL(link).pathname;
+    return pathname.match(/^\/brief\/(\d+)\.html$/)?.[1];
+};
+
+const fetchArticleDetail = (aid: string) =>
+    cache.tryGet(`huxiu:article-detail:${aid}`, async () => {
+        const apiUrl = new URL('web/article/detail', apiArticleRootUrl).href;
+        const { data: response } = await got.post(apiUrl, {
+            form: {
+                platform: 'www',
+                aid,
+            },
+        });
+
+        return response.data;
     });
 
-    const currentUrl = new URL(`club/${data.club_id}.html`, rootUrl).href;
+const fetchBriefDetail = (briefId: string) =>
+    cache.tryGet(`huxiu:brief-detail:${briefId}`, async () => {
+        const apiUrl = new URL('v1/brief/detail', apiClubRootUrl).href;
+        const { data: response } = await got.post(apiUrl, {
+            form: {
+                platform: 'www',
+                brief_id: briefId,
+            },
+        });
 
-    const { data: currentResponse } = await got(currentUrl);
+        return response.data;
+    });
 
-    const $ = load(currentResponse);
+const buildBriefCategories = (data) => [data.brief_column?.name, data.club_info?.name, ...(data.brief?.tags_info?.map((c) => c.name) ?? [])].filter(Boolean);
 
-    const subtitle = `${data.name}-${data.sub_name}`;
-    const icon = new URL($('link[rel="apple-touch-icon"]').prop('href'), rootUrl).href;
-    const author = $('meta[name="author"]').prop('content');
+const buildBriefAuthor = (data) =>
+    data.brief?.publisher_list
+        ?.map((publisher) => publisher.username)
+        .filter(Boolean)
+        .join(', ') || data.brief_column?.name;
 
-    return {
-        title: `${subtitle}-${author}`,
+const fetchMemberData = async (id: string, type: string, items, titlePrefix?: string) => {
+    const currentUrl = new URL(`member/${id}${type === 'article' ? '' : `/${type}`}.html`, rootUrl).href;
+    const firstArticleId = items.find((item) => item.aid)?.aid;
+
+    if (firstArticleId) {
+        try {
+            const detail = await fetchArticleDetail(firstArticleId);
+            const username = detail.user_info?.username ?? detail.author;
+            const description = detail.user_info?.yijuhua ?? `${username ?? `用户 ${id}`}的${type === 'moment' ? '24 小时' : '文章'}`;
+            const image = detail.user_info?.avatar?.split(/\?/, 1)[0];
+
+            return buildFeedMetadata({
+                title: username ?? `用户 ${id}`,
+                link: currentUrl,
+                description,
+                image,
+                author: username,
+                titlePrefix,
+            });
+        } catch {
+            // Fall back to generic member metadata when article detail is unavailable.
+        }
+    }
+
+    return buildFeedMetadata({
+        title: `用户 ${id}`,
         link: currentUrl,
-        description: data.summary,
-        language: $('html').prop('lang'),
-        image: data.head_img,
-        icon,
-        logo: icon,
-        subtitle,
-        author,
-        itunes_author: author,
-        itunes_category: 'News',
-        allowEmpty: true,
-    };
-};
-
-/**
- * Fetches club data for the specified ID and the ID of the default brief column.
- *
- * @param {string} id - The ID of the club to fetch data from.
- * @returns {Promise<Object>} data - A promise that resolves to an object containing the fetched data
- *                            to be added into `ctx.state.data`.
- * @returns {string} id - the ID of the default brief column.
- */
-const fetchClubData = async (id) => {
-    const currentUrl = new URL(`club/${id}.html`, rootUrl).href;
-
-    const { data: currentResponse } = await got(currentUrl);
-
-    const $ = load(currentResponse);
-
-    const title = $('title').text();
-    const icon = new URL($('link[rel="apple-touch-icon"]').prop('href'), rootUrl).href;
-    const author = $('meta[name="author"]').prop('content');
-
-    return {
-        data: {
-            title,
-            link: currentUrl,
-            description: $('ul.content-item li.content').text().trim(),
-            language: $('html').prop('lang'),
-            image: $('div.header img.img').prop('data-src')?.split(/\?/)[0] ?? undefined,
-            icon,
-            logo: icon,
-            subtitle: title.split(/-/)[0],
-            author,
-            itunes_author: author,
-            itunes_category: 'News',
-            allowEmpty: true,
-        },
-        briefColumnId: currentResponse.match(/"brief_column_id":"(\d+)",/)[1],
-    };
-};
-
-/**
- * Fetch data from the specified URL.
- *
- * @param {string} url - The URL to fetch data from.
- * @returns {Promise<Object>} A promise that resolves to an object containing the fetched data
- *                            to be added into `ctx.state.data`.
- */
-const fetchData = async (url) => {
-    const { data: response } = await got(url);
-
-    const $ = load(response);
-
-    const icon = new URL($('link[rel="apple-touch-icon"]').prop('href'), rootUrl).href;
-    const author = $('meta[name="author"]').prop('content');
-
-    return {
-        title: $('title').text(),
-        link: url,
-        description: $('div.tag-content').text() || $('span.author-intro').text() || $('p.collection__intro').text() || $('meta[name="description"]').prop('content'),
-        language: $('html').prop('lang'),
-        icon,
-        logo: icon,
-        subtitle: $('title').text().split(/-/)[0],
-        author,
-        itunes_author: author,
-        itunes_category: 'News',
-        allowEmpty: true,
-    };
+        description: `用户 ${id} 的${type === 'moment' ? '24 小时' : '文章'}`,
+        titlePrefix,
+    });
 };
 
 /**
@@ -185,16 +276,50 @@ const fetchData = async (url) => {
  * @returns {Promise<Object>} The fetched item data object.
  */
 const fetchItem = async (item) => {
-    const { data: detailResponse } = await got(item.link);
+    const articleId = extractArticleId(item.link);
+    const briefId = extractBriefId(item.link);
 
-    const state = parseInitialState(detailResponse);
-    const data = state?.briefStoreModule?.brief_detail.brief ?? state?.articleDetail?.articleDetail ?? undefined;
+    if (!articleId && !briefId) {
+        return item;
+    }
+
+    let data;
+    try {
+        data = articleId ? await fetchArticleDetail(articleId) : await fetchBriefDetail(briefId!);
+    } catch {
+        return item;
+    }
 
     if (!data) {
         return item;
     }
 
-    const { processed: audio, processedItem: audioItem = {} } = processAudioInfo(data.audio_info);
+    if (briefId) {
+        const { brief, brief_column: briefColumn, club_info: clubInfo } = data;
+        const briefAudioInfo = processAudioInfo(brief.audio_info);
+        const audio = briefAudioInfo.processed;
+        const audioItem: ItemEnclosure = briefAudioInfo.processedItem ?? {};
+        const body = [brief.preface, brief.content, brief.peroration].filter(Boolean).join('');
+
+        return {
+            ...audioItem,
+            ...item,
+            title: brief.title ?? item.title,
+            description: renderDescription({
+                audio,
+                description: body ? cleanUpHTML(body) : undefined,
+            }),
+            author: buildBriefAuthor(data) ?? item.author,
+            category: buildBriefCategories({ brief, brief_column: briefColumn, club_info: clubInfo }),
+            pubDate: parsePublicationDate(brief.publish_time),
+            upvotes: Number(brief.agree_num ?? item.upvotes ?? 0),
+            comments: Number(brief.total_comment_num ?? brief.comment_num ?? item.comments ?? 0),
+        };
+    }
+
+    const articleAudioInfo = processAudioInfo(data.audio_info);
+    const audio = articleAudioInfo.processed;
+    const audioItem: ItemEnclosure = articleAudioInfo.processedItem ?? {};
 
     if (Object.keys(audioItem).length !== 0) {
         audioItem.itunes_item_image = data.pic_path ?? data.share_info?.share_img ?? undefined;
@@ -202,32 +327,27 @@ const fetchItem = async (item) => {
 
     const { processed: video, processedItem: videoItem = {} } = processVideoInfo(data.video_info);
 
-    item.title = data.title ?? item.title;
-    item.description = art(path.join(__dirname, 'templates/description.art'), {
-        image: {
-            src: data.pic_path,
-        },
-        video,
-        audio,
-        preface: cleanUpHTML(data.content_preface ?? data.preface),
-        summary: data.ai_summary,
-        description: cleanUpHTML(data.content),
-    });
-    item.author = data.user_info?.username ?? item.author;
-    item.category = [data.video_article_tag, data.brief_column?.name ?? undefined, data.club_info?.name ?? undefined, ...(data.tags_info?.map((c) => c.name) ?? []), ...(data.relation_info?.channel?.map((c) => c.name) ?? [])].filter(
-        Boolean
-    );
-    item.pubDate = parseDate(data.dateline ?? data.publish_time, 'X');
-    item.upvote = data.agreenum ?? item.upvote;
-    item.comments = data.commentnum ?? data.total_comment_num ?? item.comments;
-
-    item.upvote = Number.parseInt(item.upvote, 10);
-    item.comments = Number.parseInt(item.comments, 10);
+    const preface = data.content_preface ?? data.preface;
+    const content = data.content;
 
     return {
         ...audioItem,
         ...videoItem,
         ...item,
+        title: data.title ?? item.title,
+        description: renderDescription({
+            image: { src: data.pic_path },
+            video,
+            audio,
+            preface: preface ? cleanUpHTML(preface) : undefined,
+            summary: content ? undefined : data.summary,
+            description: content ? cleanUpHTML(content) : undefined,
+        }),
+        author: data.user_info?.username ?? item.author,
+        category: buildCategories(data),
+        pubDate: parsePublicationDate(data.dateline ?? data.publish_time),
+        upvotes: Number(data.agreenum ?? item.upvotes ?? 0),
+        comments: Number(data.commentnum ?? data.total_comment_num ?? item.comments ?? 0),
     };
 };
 
@@ -258,7 +378,9 @@ const generateSignature = () => {
 
     const appSecret = 'hUzaABtNfDE-6UiyaYhfsmjW-8dnoyVc';
     const nonce = generateNonce();
-    const r = [appSecret, timestamp, nonce].sort();
+    // server-validated signature relies on JS default codepoint sort; localeCompare reorders mixed-case nonce vs lowercase appSecret
+    // oxlint-disable-next-line unicorn-js/require-array-sort-compare
+    const r = [appSecret, timestamp, nonce].toSorted();
     return {
         nonce,
         timestamp,
@@ -266,21 +388,12 @@ const generateSignature = () => {
     };
 };
 
-/**
- * Parses the initial state from the provided data.
- *
- * @param {string} data - The data to parse the initial state from.
- * @returns {Object|undefined} - The parsed initial state object, or undefined if not found.
- */
-const parseInitialState = (data) => {
-    const matches = data.match(/window\.__INITIAL_STATE__=({.*?});\(function\(\)/);
-    if (matches) {
-        return JSON.parse(matches[1]);
-    }
-    return;
-};
-
-const audioQualities = ['', 'low'];
+const audioQualities = [
+    { path: 'path', size: 'size' },
+    { path: 'audio_path', size: 'audio_size' },
+    { path: 'low_path', size: 'low_size' },
+    { path: 'audio_low_path', size: 'audio_low_size' },
+];
 
 /**
  * Processes the audio information and returns the processed data.
@@ -289,7 +402,7 @@ const audioQualities = ['', 'low'];
  * @returns {Object} - An object containing the processed audio data.
  */
 const processAudioInfo = (info) => {
-    const quality = info ? audioQualities.find((quality) => Object.hasOwn(info, `audio_${quality === '' ? '' : `${quality}_`}path`)) : undefined;
+    const quality = info ? audioQualities.find((quality) => typeof info[quality.path] === 'string' && info[quality.path]) : undefined;
 
     if (quality === undefined) {
         return {
@@ -298,14 +411,14 @@ const processAudioInfo = (info) => {
         };
     }
 
-    const linkKey = `audio_${quality}path`;
-    const sizeKey = `audio_${quality}size`;
+    const linkKey = quality.path;
+    const sizeKey = quality.size;
 
     const processed = {
         duration: info.format_length_new ?? info.format_length,
         size: Object.hasOwn(info, sizeKey) ? info[sizeKey] : undefined,
         src: info[linkKey],
-        type: `audio/${info[linkKey].split(/\./).pop()}`,
+        type: getMimeType(new URL(info[linkKey], rootUrl).pathname)?.split(';', 1)[0],
     };
 
     const processedItem = {
@@ -322,81 +435,127 @@ const processAudioInfo = (info) => {
 };
 
 /**
+ * Resolves item identifiers (guid and link) based on item type.
+ *
+ * @param {Object} item - The item to resolve identifiers for.
+ * @returns {Object|null} - Object with guid and link, or null if invalid item.
+ */
+const resolveItemIdentifiers = (item): { guid: string; link: string } | null => {
+    if (item.object_type === 8) {
+        return {
+            guid: `huxiu-moment-${item.object_id}`,
+            link: item.url || new URL(`moment/${item.object_id}.html`, rootUrl).href,
+        };
+    }
+
+    if (item.brief_id || /huxiu\.com\/brief\//.test(item.url)) {
+        const briefId = item.brief_id ?? item.aid;
+        return {
+            guid: `huxiu-brief-${briefId}`,
+            link: new URL(`brief/${briefId}.html`, rootUrl).href,
+        };
+    }
+
+    if (item.aid) {
+        return {
+            guid: `huxiu-article-${item.aid}`,
+            link: new URL(`article/${item.aid}.html`, rootUrl).href,
+        };
+    }
+
+    return null;
+};
+
+/**
+ * Extracts count information from item.
+ *
+ * @param {Object} item - The item to extract counts from.
+ * @returns {Object} - Object with upvotes, downvotes, and comments.
+ */
+const extractCounts = (item) => ({
+    upvotes: Number(item.count_info?.agree ?? item.count_info?.favtimes ?? item.agree_num ?? 0),
+    downvotes: Number(item.count_info?.disagree ?? 0),
+    comments: Number(item.count_info?.total_comment_num ?? item.count_info?.commentnum ?? item.total_comment_num ?? item.commentnum ?? 0),
+});
+
+/**
+ * Extracts author from item using various possible fields.
+ *
+ * @param {Object} item - The item to extract author from.
+ * @returns {string|undefined} - The author name or undefined.
+ */
+const extractAuthor = (item) => item.user_info?.username ?? item.brief_column?.name ?? item.author_info?.username ?? item.author;
+
+/**
+ * Extracts image source from item.
+ *
+ * @param {Object} item - The item to extract image from.
+ * @returns {string|undefined} - The image URL or undefined.
+ */
+const extractImageSrc = (item) => item.origin_pic_path ?? item.pic_path ?? item.big_pic_path?.split(/\?/, 1)[0];
+
+/**
+ * Maps a single item to a processed item object.
+ *
+ * @param {Object} item - The raw item to process.
+ * @returns {Object|string} - The processed item or empty string if invalid.
+ */
+const mapItem = (item) => {
+    const identifiers = resolveItemIdentifiers(item);
+    if (!identifiers) {
+        return '';
+    }
+
+    const mappedAudioInfo = processAudioInfo(item.audio_info);
+    const audio = mappedAudioInfo.processed;
+    const audioItem: ItemEnclosure = mappedAudioInfo.processedItem ?? {};
+
+    if (Object.keys(audioItem).length !== 0) {
+        audioItem.itunes_item_image = item.pic_path ?? item.share_info?.share_img ?? undefined;
+    }
+
+    const { processed: video, processedItem: videoItem = {} } = processVideoInfo(item.video_info);
+    const counts = extractCounts(item);
+    const timestamp = item.publish_time ?? item.dateline;
+
+    return {
+        ...audioItem,
+        ...videoItem,
+        title: (item.title ?? item.summary ?? item.content)?.replaceAll(/<\/?(?:em|br)?>/g, ''),
+        link: identifiers.link,
+        description: renderDescription({
+            image: { src: extractImageSrc(item) },
+            audio,
+            video,
+            summary: item.summary ?? item.content ?? item.preface,
+        }),
+        author: extractAuthor(item),
+        guid: identifiers.guid,
+        pubDate: parsePublicationDate(timestamp),
+        ...counts,
+    };
+};
+
+/**
  * Process the item list and return the resulting array.
  *
  * @param {Object[]} items - The items to process.
  * @param {number} limit - The maximum number of items to process.
- * @param {Function} tryGet   - The tryGet function that handles the retrieval process.
  * @returns {Promise<Object[]>} - A promise that resolves to an array of processed items.
  */
-const processItems = async (items, limit, tryGet) => {
-    items = items
-        .map((item) => {
-            let guid = '';
-            let link = '';
-
-            if (item.moment_id) {
-                guid = `huxiu-moment-${item.moment_id}`;
-                link = item.url || new URL(`moment/${item.moment_id}.html`, rootUrl).href;
-            } else if (item.brief_id || /huxiu\.com\/brief\//.test(item.url)) {
-                item.brief_id = item.brief_id ?? item.aid;
-                guid = `huxiu-brief-${item.brief_id}`;
-                link = new URL(`brief/${item.brief_id}.html`, rootUrl).href;
-            } else if (item.aid) {
-                guid = `huxiu-article-${item.aid}`;
-                link = new URL(`article/${item.aid}.html`, rootUrl).href;
-            } else {
-                return '';
-            }
-
-            const { processed: audio, processedItem: audioItem = {} } = processAudioInfo(item.audio_info);
-
-            if (Object.keys(audioItem).length !== 0) {
-                audioItem.itunes_item_image = item.pic_path ?? item.share_info?.share_img ?? undefined;
-            }
-
-            const { processed: video, processedItem: videoItem = {} } = processVideoInfo(item.video_info);
-
-            const upvotes = item.count_info?.agree ?? item.count_info?.favtimes ?? item.agree_num ?? 0;
-            const downvotes = item.count_info?.disagree ?? 0;
-            const comments = item.count_info?.total_comment_num ?? item.count_info?.commentnum ?? item.total_comment_num ?? item.commentnum ?? 0;
-
-            return {
-                ...audioItem,
-                ...videoItem,
-                title: (item.title ?? item.summary ?? item.content)?.replace(/<\/?(?:em|br)?>/g, ''),
-                link,
-                description: art(path.join(__dirname, 'templates/description.art'), {
-                    image: {
-                        src: item.origin_pic_path ?? item.pic_path ?? item.big_pic_path?.split(/\?/)[0] ?? undefined,
-                    },
-                    audio,
-                    video,
-                    summary: item.summary ?? item.content ?? item.preface,
-                }),
-                author: item.user_info?.username ?? item.brief_column?.name ?? item.author_info?.username ?? item.author,
-                guid,
-                pubDate: (item.publish_time ?? item.dateline) ? parseDate(item.publish_time ?? item.dateline, 'X') : undefined,
-                upvotes: Number.parseInt(upvotes, 10),
-                downvotes: Number.parseInt(downvotes, 10),
-                comments: Number.parseInt(comments, 10),
-            };
-        })
+const processItems = async (items, limit) => {
+    const processedItems = items
+        .map((item) => mapItem(item))
         .filter(Boolean)
         .slice(0, limit);
 
     return await Promise.all(
-        items.map((item) =>
-            tryGet(item.guid, async () => {
-                if (!new RegExp(domain, 'i').test(new URL(item.link).hostname)) {
-                    return item;
-                } else if (!item.guid.startsWith('huxiu-moment')) {
-                    return await fetchItem(item);
-                }
+        processedItems.map((item) => {
+            const isExternalLink = !new RegExp(domain, 'i').test(new URL(item.link).hostname);
+            const isMoment = item.guid.startsWith('huxiu-moment');
 
-                return item;
-            })
-        )
+            return isExternalLink || isMoment ? item : fetchItem(item);
+        })
     );
 };
 
@@ -426,7 +585,7 @@ const processVideoInfo = (info) => {
         poster: info.cover ?? info.custom_cover_path ?? info.gif_path,
         size: Object.hasOwn(info, sizeKey) ? info[sizeKey] : undefined,
         src: info[linkKey],
-        type: `video/${info[linkKey].split(/\./).pop()}`,
+        type: getMimeType(new URL(info[linkKey], rootUrl).pathname)?.split(';', 1)[0],
     };
 
     const processedItem = {
@@ -443,4 +602,18 @@ const processVideoInfo = (info) => {
     };
 };
 
-export { rootUrl, apiArticleRootUrl, apiBriefRootUrl, apiMemberRootUrl, apiMomentRootUrl, apiSearchRootUrl, fetchBriefColumnData, fetchClubData, fetchData, generateSignature, processItems };
+export {
+    apiArticleRootUrl,
+    apiClubRootUrl,
+    apiMemberRootUrl,
+    apiMomentRootUrl,
+    apiSearchRootUrl,
+    buildFeedMetadata,
+    buildHuxiuRouteTitlePrefix,
+    fetchApiRouteData,
+    fetchMemberData,
+    generateSignature,
+    processItems,
+    rootUrl,
+    siteTitle,
+};

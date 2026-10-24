@@ -1,9 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/:id?',
@@ -21,13 +23,13 @@ export const route: Route = {
     name: '消息',
     maintainers: ['jialinghui', 'Misaka13514'],
     handler,
-    description: `:::tip
-  例如：消息速递的网址为 \`https://www.shmeea.edu.cn/page/08000/index.html\`，则页面 ID 为 \`08000\`。
-  :::
+    description: `::: tip
+例如：消息速递的网址为 \`https://www.shmeea.edu.cn/page/08000/index.html\`，则页面 ID 为 \`08000\`。
+:::
 
-  :::warning
-  暂不支持大类分类和[院内动态](https://www.shmeea.edu.cn/page/19000/index.html)
-  :::`,
+::: warning
+暂不支持大类分类和[院内动态](https://www.shmeea.edu.cn/page/19000/index.html)
+:::`,
 };
 
 async function handler(ctx) {
@@ -42,34 +44,30 @@ async function handler(ctx) {
 
     const list = $('#main .pageList li')
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem & { link: string } => {
+            const $item = $(item);
             return {
-                title: item.find('a').attr('title') || item.find('a').text(),
-                link: new URL(item.find('a').attr('href'), baseURL).href,
-                pubDate: parseDate(item.find('.listTime').text().trim(), 'YYYY-MM-DD'),
+                title: $item.find('a').attr('title') || $item.find('a').text(),
+                link: new URL($item.find('a').attr('href')!, baseURL).href,
+                pubDate: timezone(parseDate($item.find('.listTime').text(), 'YYYY-MM-DD'), 8),
             };
         });
 
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
-                if (!item.link.endsWith('.html') || new URL(item.link).hostname !== new URL(baseURL).hostname) {
-                    return item;
-                }
-
+    const items = await pMap(
+        list,
+        async (item) => {
+            if (!item.link.endsWith('.html') || new URL(item.link).hostname !== new URL(baseURL).hostname) {
+                return item;
+            }
+            const details = await cache.tryGet(`shmeea:details:v2:${item.link}:${item.pubDate}`, async () => {
                 const result = await got(item.link);
                 const $ = load(result.data);
-
-                const description = $('#ivs_content').html();
-                const pbTimeText = $('#ivs_title .PBtime').text().trim();
-
-                item.description = description;
-                item.pubDate = pbTimeText ? timezone(parseDate(pbTimeText, 'YYYY-MM-DD HH:mm:ss'), +8) : item.pubDate;
-
-                return item;
-            })
-        )
+                const pbTimeText = $('#ivs_title .PBtime').text();
+                return { description: $('#ivs_content').html(), pubDate: pbTimeText ? timezone(parseDate(pbTimeText, 'YYYY-MM-DD HH:mm:ss'), 8) : item.pubDate };
+            });
+            return { ...item, ...details };
+        },
+        { concurrency: 3 }
     );
 
     return {

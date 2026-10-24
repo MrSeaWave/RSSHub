@@ -1,7 +1,9 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/developer/group/:type',
@@ -30,7 +32,6 @@ async function handler(ctx) {
     const type = ctx.req.param('type');
     const link = `https://developer.aliyun.com/group/${type}`;
 
-    // 发起 HTTP GET 请求
     const response = await got({
         method: 'get',
         url: link,
@@ -38,36 +39,27 @@ async function handler(ctx) {
 
     const data = response.data;
 
-    // 使用 cheerio 加载返回的 HTML
     const $ = load(data);
-    const title = $('div[class="header-information-title"]')
-        .contents()
-        .filter(function () {
-            return this.nodeType === 3;
-        })
-        .text()
-        .trim();
-    const desc = $('div[class="header-information"]').find('span').last().text().trim();
+    const title = $('.header-information-title').text().trim();
+    const desc = $('.header-information p').text();
     const list = $('ul[class^="content-tab-list"] > li');
 
     return {
         title: `阿里云开发者社区-${title}`,
         link,
         description: desc,
-        item:
-            list &&
-            list
-                .map((index, item) => {
-                    item = $(item);
-                    const desc = item.find('.question-desc');
-                    const description = item.find('.browse').text() + ' ' + desc.find('.answer').text();
-                    return {
-                        title: item.find('.question-title').text().trim() || item.find('a p').text().trim(),
-                        link: item.find('a').attr('href'),
-                        pubDate: parseDate(item.find('.time').text()),
-                        description,
-                    };
-                })
-                .get(),
+        item: list.toArray().map((item) => {
+            const $item = $(item);
+            const date = $item.find('.time').text();
+            const href = $item.find('a').first().attr('href');
+            return {
+                title: $item.find('h3').first().text() || $item.find('.question-title').text() || $item.find('a p').text(),
+                link: href ? new URL(href, link).href : undefined,
+                pubDate: /^\d{4}-\d{2}-\d{2}/.test(date) ? timezone(parseDate(date), 8) : undefined,
+                author: $item.find('.user').text() || undefined,
+                category: $item.find('.tag').text() || undefined,
+                image: $item.find('img').attr('src'),
+            };
+        }),
     };
 }

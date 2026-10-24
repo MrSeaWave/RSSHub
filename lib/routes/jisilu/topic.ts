@@ -1,16 +1,18 @@
-import { type CheerioAPI, load } from 'cheerio';
-import { type Context } from 'hono';
+import type { CheerioAPI } from 'cheerio';
+import { load } from 'cheerio';
+import type { Context } from 'hono';
 
-import { type DataItem, type Route, type Data, ViewType } from '@/types';
-
+import type { Data, DataItem, Language, Route } from '@/types';
+import { ViewType } from '@/types';
 import ofetch from '@/utils/ofetch';
+import { getRouteLimit } from '@/utils/route-limit';
 
-import { rootUrl, processItems } from './util';
+import { processItems, rootUrl } from './util';
 
 export const handler = async (ctx: Context): Promise<Data> => {
     const { id } = ctx.req.param();
 
-    const limit: number = Number.parseInt(ctx.req.query('limit') ?? '30', 10);
+    const limit = getRouteLimit(ctx, 30);
 
     const targetUrl: string = new URL(`/topic/${id}`, rootUrl).href;
 
@@ -22,7 +24,7 @@ export const handler = async (ctx: Context): Promise<Data> => {
 
     $('div.pagination').remove();
 
-    const author = $('meta[name="keywords"]').prop('content').split(/,/)[0];
+    const author = $('meta[name="keywords"]').prop('content')?.split(/,/, 1)[0];
     const feedImage = $('div.aw-logo img').prop('src');
 
     return {
@@ -30,10 +32,9 @@ export const handler = async (ctx: Context): Promise<Data> => {
         description: $('meta[name="description"]').prop('content'),
         link: targetUrl,
         item: items,
-        allowEmpty: true,
         image: feedImage,
         author,
-        language,
+        language: language as Language,
         id: targetUrl,
     };
 };
@@ -48,14 +49,13 @@ export const route: Route = {
     parameters: {
         id: '话题 id，可在对应话题页 URL 中找到',
     },
-    description: `:::tip
+    description: `::: tip
 若订阅 [可转债](https://www.jisilu.cn/topic/可转债)，网址为 \`https://www.jisilu.cn/topic/可转债\`，请截取 \`https://www.jisilu.cn/topic/\` 到末尾的部分 \`可转债\` 作为 \`id\` 参数填入，此时目标路由为 [\`/jisilu/topic/可转债\`](https://rsshub.app/jisilu/topic/可转债)。
 :::
 
-:::tip
+::: tip
 前往 [话题广场](https://www.jisilu.cn/topic) 查看更多话题。
-:::
-`,
+:::`,
     categories: ['finance'],
     features: {
         requireConfig: false,

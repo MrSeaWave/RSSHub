@@ -1,11 +1,11 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
 
 export const route: Route = {
     path: '/mcr/product/*',
     categories: ['program-update'],
     example: '/microsoft/mcr/product/dotnet/framework/runtime',
-    parameters: { product: 'repository path in mcr.microsoft.com' },
+    description: 'Append the repository path after `/mcr/product/`, including nested repository segments.',
     features: {
         requireConfig: false,
         requirePuppeteer: false,
@@ -16,7 +16,8 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['https://mcr.microsoft.com/en-us/product/:product/tags'],
+            source: ['mcr.microsoft.com/en-us/product/*product/tags'],
+            target: '/mcr/product/:product',
         },
     ],
     name: 'Product tags in mcr.microsoft.com',
@@ -28,11 +29,11 @@ async function handler(ctx) {
     const product = ctx.req.path.replace('/microsoft/mcr/product/', '');
     const { data: details } = await got({
         method: 'get',
-        url: `https://mcr.microsoft.com/api/v1/catalog/${product}/details`,
+        url: `https://mcr.microsoft.com/api/v1/catalog/${product}/details?reg=mar`,
     });
     const { data: tags } = await got({
         method: 'get',
-        url: `https://mcr.microsoft.com/api/v1/catalog/${product}/tags`,
+        url: `https://mcr.microsoft.com/api/v1/catalog/${product}/tags?reg=mar`,
     });
 
     return {

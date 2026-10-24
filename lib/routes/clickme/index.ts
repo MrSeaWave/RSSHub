@@ -1,8 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
     path: '/:site/:grouping/:name',
@@ -27,7 +30,7 @@ async function handler(ctx) {
     const grouping = ctx.req.param('grouping') === 'tag' ? 'tag' : 'category';
     const name = ctx.req.param('name');
 
-    const url = `https://${site ? 'r18.' : ''}clickme.net/${grouping.substring(0, 1)}/${encodeURIComponent(name)}`;
+    const url = `https://${site ? 'r18.' : ''}clickme.net/${grouping.slice(0, 1)}/${encodeURIComponent(name)}`;
 
     const { data: response } = await got.post('https://api.clickme.net/article/list', {
         headers: {
@@ -46,10 +49,14 @@ async function handler(ctx) {
         },
     });
 
-    const category_name = name === 'new' ? '最新' : response.data.items[0].categoryName[0].name;
-    const displayed_name = grouping === 'tag' ? name : category_name;
+    if (!Array.isArray(response.data?.items)) {
+        throw new InvalidParameterError(`ClickMe could not find the ${grouping} "${name}". Use a category or tag from the source website.`);
+    }
 
-    const list = response.data.items.map((item) => ({
+    const categoryName = name === 'new' ? '最新' : (response.data.items[0]?.categoryName?.[0]?.name ?? name);
+    const displayedName = grouping === 'tag' ? name : categoryName;
+
+    const list = response.data.items.slice(0, getRouteLimit(ctx, 18)).map((item) => ({
         title: item.title,
         link: item.url.replace('http://', 'https://'),
         author: item.userNick,
@@ -69,7 +76,7 @@ async function handler(ctx) {
     );
 
     return {
-        title: `ClickMe ${site ? 'R18 ' : ''}- ${displayed_name}`,
+        title: `ClickMe ${site ? 'R18 ' : ''}- ${displayedName}`,
         link: url,
         item: out,
     };

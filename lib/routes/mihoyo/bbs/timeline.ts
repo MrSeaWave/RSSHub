@@ -1,9 +1,10 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
-import cache from './cache';
 import { config } from '@/config';
-import { post2item } from './utils';
 import ConfigNotFoundError from '@/errors/types/config-not-found';
+import type { Route } from '@/types';
+import got from '@/utils/got';
+
+import cache from './cache';
+import { post2item } from './utils';
 
 export const route: Route = {
     path: '/bbs/timeline',
@@ -31,9 +32,9 @@ export const route: Route = {
     name: '米游社 - 用户关注动态',
     maintainers: ['CaoMeiYouRen'],
     handler,
-    description: `:::warning
-  用户关注动态需要米游社登录后的 Cookie 值，所以只能自建，详情见部署页面的配置模块。
-  :::`,
+    description: `::: warning
+用户关注动态需要米游社登录后的 Cookie 值，所以只能自建，详情见部署页面的配置模块。
+:::`,
 };
 
 async function handler(ctx) {
@@ -41,10 +42,11 @@ async function handler(ctx) {
         throw new ConfigNotFoundError('Miyoushe Timeline is not available due to the absense of [Miyoushe Cookie]. Check <a href="https://docs.rsshub.app/deploy/config#route-specific-configurations">relevant config tutorial</a>');
     }
 
-    const page_size = ctx.req.query('limit') || '20';
+    const requestedLimit = Number(ctx.req.query('limit'));
+    const pageSize = String(Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : 20);
     const searchParams = {
         gids: 2,
-        page_size,
+        page_size: pageSize,
     };
     const link = 'https://www.miyoushe.com/ys/timeline';
     const url = 'https://bbs-api.miyoushe.com/painter/wapi/timeline/list';

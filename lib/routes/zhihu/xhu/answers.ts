@@ -1,7 +1,8 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
-import auth from './auth';
 import { parseDate } from '@/utils/parse-date';
+
+import auth from './auth';
 
 export const route: Route = {
     path: '/xhu/people/answers/:hexId',
@@ -16,12 +17,6 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    radar: [
-        {
-            source: ['www.zhihu.com/people/:id/answers'],
-            target: '/people/answers/:id',
-        },
-    ],
     name: 'xhu - 用户回答',
     maintainers: ['JimenezLi'],
     handler,

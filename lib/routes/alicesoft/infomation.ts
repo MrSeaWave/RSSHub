@@ -1,7 +1,9 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
-import cache from '@/utils/cache';
 import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+import { getRouteLimit } from '@/utils/route-limit';
 
 const baseUrl = 'https://www.alicesoft.com';
 
@@ -25,7 +27,7 @@ export const route: Route = {
     radar: [
         {
             source: ['www.alicesoft.com/information', 'www.alicesoft.com/information/:category', 'www.alicesoft.com/information/:category/:game'],
-            target: '/information/:category/:game',
+            target: '/information/:category?/:game?',
         },
     ],
     name: 'ニュース',
@@ -35,7 +37,7 @@ export const route: Route = {
 
 async function handler(ctx) {
     const { category, game } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 10;
+    const limit = getRouteLimit(ctx, 10);
 
     let url = `${baseUrl}/information`;
     if (category) {
@@ -51,21 +53,21 @@ async function handler(ctx) {
     let items = $('div.cont-main li')
         .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
             return {
-                title: item.find('p.txt').text(),
-                link: item.find('a').attr('href'),
-                pubDate: new Date(item.find('time').attr('datetime')),
+                title: $item.find('p.txt').text(),
+                link: $item.find('a').attr('href'),
+                pubDate: new Date($item.find('time').attr('datetime')!),
             };
         });
 
     items = await Promise.all(
         items.map((item) => {
-            if (!item.link.startsWith(`${baseUrl}/information/`)) {
+            if (!item.link!.startsWith(`${baseUrl}/information/`)) {
                 return item;
             }
-            return cache.tryGet(item.link, async () => {
+            return cache.tryGet(item.link!, async () => {
                 const contentResponse = await got(item.link);
 
                 const content = load(contentResponse.data);
@@ -80,9 +82,14 @@ async function handler(ctx) {
     );
 
     return {
-        title: 'ALICESOFT ' + $('article h2').clone().children().remove().end().text(),
+        title:
+            'ALICESOFT ' +
+            $('article h2')
+                .contents()
+                .filter((_, node) => node.type === 'text')
+                .text(),
         link: url,
         item: items,
-        language: 'ja',
+        language: 'ja' as const,
     };
 }

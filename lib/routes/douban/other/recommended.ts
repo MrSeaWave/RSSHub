@@ -1,11 +1,8 @@
-import { Route } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
-
+import type { Route } from '@/types';
 import got from '@/utils/got';
-import path from 'node:path';
-import { art } from '@/utils/render';
 import { fallback, queryToInteger } from '@/utils/readable-social';
+
+import { renderListDescription } from '../templates/list-description';
 
 export const route: Route = {
     path: '/recommended/:type?/:routeParams?',
@@ -20,19 +17,19 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    name: '豆瓣每月推荐片单',
+    name: '每月推荐片单',
     maintainers: ['honue'],
     handler,
     description: `| 额外参数 | 含义                   | 接受的值 | 默认值 |
-  | -------- | ---------------------- | -------- | ------ |
-  | playable | 仅看有可播放片源的影片 | 0/1      | 0      |
-  | score    | 筛选评分               | 0-10     | 0      |
+| -------- | ---------------------- | -------- | ------ |
+| playable | 仅看有可播放片源的影片 | 0/1      | 0      |
+| score    | 筛选评分               | 0-10     | 0      |
 
-  用例：\`/douban/recommended/tv/playable=0&score=8\`
+用例：\`/douban/recommended/tv/playable=0&score=8\`
 
-  :::tip
-  整合了 /douban/list/ 路由，省去每月手动更新 id 参数，因为当月推荐剧集片单中，会有还未播出 / 开评分剧集、海外平台播出剧集，请自行考虑是否使用额外参数。
-  :::`,
+::: tip
+整合了 /douban/list/ 路由，省去每月手动更新 id 参数，因为当月推荐剧集片单中，会有还未播出 / 开评分剧集、海外平台播出剧集，请自行考虑是否使用额外参数。
+:::`,
 };
 
 async function handler(ctx) {
@@ -73,14 +70,13 @@ async function handler(ctx) {
     items = response.data.subject_collection_items
         .filter((item) => {
             const rate = item.rating ? item.rating.value : 0;
-            return rate >= score; // 保留rate大于等于score的项and过滤无评分项
+            return rate >= score; // Keep rated entries at or above the selected score.
         })
         .map((item) => {
             const title = item.title;
             const link = item.url;
-            const description = art(path.join(__dirname, '../templates/list_description.art'), {
+            const description = renderListDescription({
                 ranking_value: item.ranking_value,
-                title,
                 original_title: item.original_title,
                 rate: item.rating ? item.rating.value : null,
                 card_subtitle: item.card_subtitle,

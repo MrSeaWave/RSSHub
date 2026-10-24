@@ -1,12 +1,15 @@
-import { Route } from '@/types';
+import pMap from 'p-map';
 
-import ofetch from '@/utils/ofetch';
 import InvalidParameterError from '@/errors/types/invalid-parameter';
-import { rootUrl, apiRootUrl, parseResult, parseArticle } from './utils';
+import type { Route } from '@/types';
+import ofetch from '@/utils/ofetch';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import { apiRootUrl, parseArticle, parseResult, rootUrl } from './utils';
 
 export const route: Route = {
     path: '/topic/:topic?',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/utgd/topic/在线阅读专栏',
     parameters: { topic: '专题，默认为在线阅读专栏' },
     features: {
@@ -20,7 +23,7 @@ export const route: Route = {
     radar: [
         {
             source: ['utgd.net/topic', 'utgd.net/'],
-            target: '/topic/:topic',
+            target: '/topic',
         },
     ],
     name: '专题',
@@ -28,14 +31,14 @@ export const route: Route = {
     handler,
     url: 'utgd.net/topic',
     description: `| 在线阅读专栏 | 卡片笔记专题 |
-  | ------------ | ------------ |
+| ------------ | ------------ |
 
-  更多专栏请见 [专题广场](https://utgd.net/topic)`,
+更多专栏请见 [专题广场](https://utgd.net/topic)`,
 };
 
 async function handler(ctx) {
     const topic = ctx.req.param('topic') ?? '在线阅读专栏';
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 20;
+    const limit = getRouteLimit(ctx, 20);
 
     const currentUrl = `${rootUrl}/topic`;
     const topicUrl = `${apiRootUrl}/api/v2/topic/`;
@@ -54,7 +57,7 @@ async function handler(ctx) {
 
     const list = parseResult(response.results, limit);
 
-    const items = await Promise.all(list.map((item) => parseArticle(item)));
+    const items = await pMap(list, parseArticle, { concurrency: 3 });
 
     return {
         title: `UNTAG - ${topicItem.title}`,

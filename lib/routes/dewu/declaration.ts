@@ -1,4 +1,6 @@
-import { Route } from '@/types';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
@@ -11,10 +13,6 @@ const typeMap = {
     '1010568195': '维护公告',
 };
 
-/**
- *
- * @param ctx {import('koa').Context}
- */
 export const route: Route = {
     path: '/declaration/:categoryId?',
     categories: ['programming'],
@@ -32,11 +30,11 @@ export const route: Route = {
     maintainers: ['blade0910'],
     handler,
     description: `| 类型             | type       |
-  | ---------------- | ---------- |
-  | 技术变更         | 1010580020 |
-  | 服务市场规则中心 | 1014821004 |
-  | 规则变更         | 1011202692 |
-  | 维护公告         | 1010568195 |`,
+| ---------------- | ---------- |
+| 技术变更         | 1010580020 |
+| 服务市场规则中心 | 1014821004 |
+| 规则变更         | 1011202692 |
+| 维护公告         | 1010568195 |`,
 };
 
 async function handler(ctx) {
@@ -52,16 +50,19 @@ async function handler(ctx) {
         },
     });
 
-    const list = response.data.data.map((item) => ({
+    const list: Array<DataItem & { documentId: number; link: string; pubDate: Date }> = response.data.data.map((item) => ({
         title: item.title,
-        id: item.id,
+        id: String(item.id),
+        documentId: item.id,
         link: `https://open.dewu.com/#/declaration/read?articleId=${item.id}`,
-        pubDate: timezone(parseDate(item.publishTime), +8),
+        pubDate: timezone(parseDate(item.publishTime), 8),
     }));
-
-    const result = await Promise.all(
-        list.map((item) =>
+    const selected = list;
+    const result = await pMap(
+        selected,
+        (item) =>
             cache.tryGet(item.link, async () => {
+                const { documentId, ...feedItem } = item;
                 const itemResponse = await got({
                     method: 'post',
                     url: 'https://open.dewu.com/api/v1/h5/merchant-study/open/document/getDocumentDetail',
@@ -69,13 +70,13 @@ async function handler(ctx) {
                         'Content-Type': 'application/json',
                     },
                     json: {
-                        documentId: item.id,
+                        documentId,
                     },
                 });
-                item.description = itemResponse.data.data.content;
-                return item;
-            })
-        )
+                feedItem.description = itemResponse.data.data.content;
+                return feedItem;
+            }),
+        { concurrency: 3 }
     );
 
     return {

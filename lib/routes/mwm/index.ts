@@ -1,7 +1,8 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -26,15 +27,18 @@ export const route: Route = {
     maintainers: ['nczitzk'],
     handler,
     description: `| 本期要目 | 网络首发 | 学术活动 | 通知公告 |
-  | -------- | -------- | -------- | -------- |
-  | bqym     | wlsf     | xshd     | tzgg     |`,
+| -------- | -------- | -------- | -------- |
+| bqym     | wlsf     | xshd     | tzgg     |`,
 };
 
 async function handler(ctx) {
     const category = ctx.req.param('category') ?? 'bqym';
 
+    const requestedLimit = Number(ctx.req.query('limit'));
+    const limit = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : 100;
+
     const rootUrl = 'http://www.mwm.net.cn';
-    const currentUrl = `${rootUrl}/web/${category === 'bqym' ? `bqym?pagesize=${ctx.req.query('limit') ?? 100}` : category}`;
+    const currentUrl = `${rootUrl}/web/${category === 'bqym' ? `bqym?pagesize=${limit}` : category}`;
 
     const response = await got({
         method: 'get',
@@ -47,18 +51,18 @@ async function handler(ctx) {
 
     let items = $('.n_title, .con1_text')
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
             return {
-                title: item.text(),
-                link: `${rootUrl}${item.attr('href')}`,
+                title: $item.text(),
+                link: `${rootUrl}${$item.attr('href')}`,
             };
         });
 
     items = await Promise.all(
         items.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,

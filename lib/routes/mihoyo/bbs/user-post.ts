@@ -1,5 +1,6 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
+
 import { post2item } from './utils';
 
 export const route: Route = {
@@ -22,13 +23,14 @@ export const route: Route = {
 
 async function handler(ctx) {
     const uid = ctx.req.param('uid');
-    const size = ctx.req.query('limit') || '20';
+    const requestedLimit = Number(ctx.req.query('limit'));
+    const pageSize = String(Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : 20);
     const searchParams = {
         uid,
-        size,
+        size: pageSize,
     };
     const link = `https://www.miyoushe.com/ys/accountCenter/postList?id=${uid}`;
-    const url = `https://bbs-api.miyoushe.com/post/wapi/userPost`;
+    const url = 'https://bbs-api.miyoushe.com/post/wapi/userPost';
     const response = await got({
         method: 'get',
         url,

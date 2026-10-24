@@ -1,20 +1,24 @@
-import { Route } from '@/types';
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import util from './utils';
-const software_url = 'https://www.nintendoswitch.com.cn/software/';
 import { parseDate } from '@/utils/parse-date';
-import InvalidParameterError from '@/errors/types/invalid-parameter';
+
+import util from './utils';
+
+const software_url = 'https://www.nintendoswitch.com.cn/software/';
 
 export const route: Route = {
     path: '/eshop/cn',
+    categories: ['game'],
+    example: '/nintendo/eshop/cn',
     radar: [
         {
             source: ['nintendoswitch.com.cn/software', 'nintendoswitch.com.cn/'],
         },
     ],
-    name: 'Unknown',
-    maintainers: [],
+    name: 'eShop New Game Releases (CN)',
+    maintainers: ['HFO4'],
     handler,
     url: 'nintendoswitch.com.cn/software',
 };
@@ -42,12 +46,21 @@ async function handler() {
         throw new InvalidParameterError('软件信息不存在，请报告这个问题');
     }
 
-    let data = result.recentSoftwareList.map((item) => ({
-        title: item.title,
-        description: util.generateImageLink(item.imgUrl),
-        link: item.jumpUrl.startsWith('http') ? item.jumpUrl : `${software_url}${item.jumpUrl}`,
-        pubDate: parseDate(item.publishTime, 'YYYY.MM.DD'),
-    }));
+    const seen = new Set<string>();
+    let data = result.recentSoftwareList
+        .map((item) => ({
+            title: item.title,
+            description: util.generateImageLink(item.imgUrl),
+            link: item.jumpUrl.startsWith('http') ? item.jumpUrl : `${software_url}${item.jumpUrl}`,
+            pubDate: parseDate(item.publishTime, 'YYYY.MM.DD'),
+        }))
+        .filter((item) => {
+            if (seen.has(item.link)) {
+                return false;
+            }
+            seen.add(item.link);
+            return true;
+        });
 
     data = await util.ProcessItemChina(data, cache);
 

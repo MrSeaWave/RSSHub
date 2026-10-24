@@ -1,7 +1,9 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/yjs',
@@ -31,7 +33,7 @@ async function handler() {
     const link = 'https://grd.bit.edu.cn/zsgz/zsxx/index.htm';
     const response = await got(link);
     const $ = load(response.data);
-    const list = $('.tongzhigonggao li');
+    const list = $('.page-list5 .block-list > li');
 
     return {
         title: '北京理工大学研究生院',
@@ -40,12 +42,13 @@ async function handler() {
         item:
             list &&
             list.toArray().map((item) => {
-                item = $(item);
-                const a = item.find('a');
+                const $item = $(item);
+                const a = $item.find('a');
+                const date = $item.find('.gpArticleDate').text();
                 return {
-                    title: a.text(),
-                    link: new URL(a.attr('href'), link).href,
-                    pubDate: parseDate(item.find('span').text(), 'YYYY-MM-DD'),
+                    title: a.find('.gpArticleTitle').text(),
+                    link: new URL(a.attr('href')!, link).href,
+                    pubDate: date ? timezone(parseDate(date, 'YYYY-MM-DD'), 8) : undefined,
                 };
             }),
     };

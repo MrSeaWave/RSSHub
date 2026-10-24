@@ -1,16 +1,20 @@
-import { Route } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
+import { load } from 'cheerio';
+import pMap from 'p-map';
 
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
+import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import { art } from '@/utils/render';
-import path from 'node:path';
-import { isValidHost } from '@/utils/valid-host';
-import InvalidParameterError from '@/errors/types/invalid-parameter';
+
+import { renderDescription } from './templates/description';
+
+const regionLanguages = { na: 'en', eu: 'en', fr: 'fr', de: 'de', jp: 'ja' } as const;
+const regions = new Set(Object.keys(regionLanguages));
+const categories = new Set(['all', 'topics', 'notices', 'maintenance', 'updates', 'status', 'developers']);
 
 export const route: Route = {
-    path: ['/global/:lang/:type?', '/ff14_global/:lang/:type?'],
+    path: '/global/:lang/:type?',
     categories: ['game'],
     example: '/ff14/global/na/all',
     parameters: { lang: 'Region', type: 'Category, `all` by default' },
@@ -22,27 +26,39 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    name: 'FINAL FANTASY XIV (The Lodestone)',
-    maintainers: ['chengyuhui'],
+    name: 'The Lodestone',
+    maintainers: ['kmod-midori'],
     handler,
     description: `Region
 
-  | North Ameria | Europe | France | Germany | Japan |
-  | ------------ | ------ | ------ | ------- | ----- |
-  | na           | eu     | fr     | de      | jp    |
+| North Ameria | Europe | France | Germany | Japan |
+| ------------ | ------ | ------ | ------- | ----- |
+| na           | eu     | fr     | de      | jp    |
 
-  Category
+Category
 
-  | all | topics | notices | maintenance | updates | status | developers |
-  | --- | ------ | ------- | ----------- | ------- | ------ | ---------- |`,
+| all | topics | notices | maintenance | updates | status | developers |
+| --- | ------ | ------- | ----------- | ------- | ------ | ---------- |`,
 };
+
+interface LodestoneNewsItem {
+    id: string;
+    url: string;
+    title: string;
+    time: string;
+    description?: string;
+    image?: string;
+}
 
 async function handler(ctx) {
     const lang = ctx.req.param('lang');
     const type = ctx.req.param('type') ?? 'all';
 
-    if (!isValidHost(lang)) {
-        throw new InvalidParameterError('Invalid lang');
+    if (!regions.has(lang)) {
+        throw new InvalidParameterError('Unsupported region. Choose na, eu, fr, de, or jp.');
+    }
+    if (!categories.has(type)) {
+        throw new InvalidParameterError('Unsupported category. Choose all, topics, notices, maintenance, updates, status, or developers.');
     }
 
     const response = await got({
@@ -50,28 +66,42 @@ async function handler(ctx) {
         url: `https://lodestonenews.com/news/${type}?locale=${lang}`,
     });
 
-    let data;
+    let data: LodestoneNewsItem[];
     if (type === 'all') {
-        data = [];
-        for (const arr of Object.values(response.data)) {
-            data = [...data, ...arr];
-        }
+        const groups: Record<string, LodestoneNewsItem[]> = response.data;
+        data = Object.values(groups).flat();
     } else {
         data = response.data;
     }
 
+    const items = data.map((item) => ({ ...item, pubDate: parseDate(item.time) }));
+    const candidates = items;
+    const posts = await pMap(
+        candidates,
+        async ({ id, url, title, pubDate, description, image }) => ({
+            title,
+            link: url,
+            description: description
+                ? renderDescription({ image, description })
+                : await cache.tryGet(url, async () => {
+                      const response = await got(url);
+                      const $ = load(response.data);
+                      const content = $('.news__detail__wrapper');
+                      if (!content.length) {
+                          throw new Error('The Lodestone did not provide the article content.');
+                      }
+                      return content.html();
+                  }),
+            pubDate,
+            guid: id,
+        }),
+        { concurrency: 3 }
+    );
+
     return {
         title: `FFXIV Lodestone updates (${type})`,
         link: `https://${lang}.finalfantasyxiv.com/lodestone/news/`,
-        item: data.map(({ id, url, title, time, description, image }) => ({
-            title,
-            link: url,
-            description: art(path.join(__dirname, 'templates/description.art'), {
-                image,
-                description,
-            }),
-            pubDate: parseDate(time),
-            guid: id,
-        })),
+        language: regionLanguages[lang],
+        item: posts,
     };
 }

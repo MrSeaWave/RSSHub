@@ -1,6 +1,6 @@
-import { Route } from '@/types';
-import { parseDate } from '@/utils/parse-date';
+import type { Route } from '@/types';
 import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
 
 import { parseFilterStr } from './util';
 
@@ -13,18 +13,18 @@ export const route: Route = {
     parameters: {
         filter: 'Filter string',
     },
-    description: `
-:::tip
+    description: `::: tip
 
 Filter parameters:
+
 - category: 100: trending, 200: newest, 300: top
-- status_filter: 0: all, 100: available, 400: missed
-- community_filter: 0: all community, 100: verified, 200: followed
-- rewards_filter: 0: all rewards, 100: nft, 200: token, 400: whitelist
-- chain_filter: 0: all chains, 1: ethereum, 56: bsc, 137: polygon, 42161: arb, 10: op, 324: zksync, 43114: avax
+- status\\_filter: 0: all, 100: available, 400: missed
+- community\\_filter: 0: all community, 100: verified, 200: followed
+- rewards\\_filter: 0: all rewards, 100: nft, 200: token, 400: whitelist
+- chain\\_filter: 0: all chains, 1: ethereum, 56: bsc, 137: polygon, 42161: arb, 10: op, 324: zksync, 43114: avax
 - search: 'Search keyword',
 - count: 'Number of events to fetch',
-- page: 'Page number',
+
 :::`,
     categories: ['other'],
     features: {
@@ -38,7 +38,7 @@ Filter parameters:
     radar: [
         {
             source: ['app.questn.com/explore'],
-            target: '/events/:category?/:status_filter?/:community_filter?/:reward_filter?/:chain_filter?/:search?/:count?/:page?',
+            target: '/events',
         },
     ],
     handler,
@@ -47,19 +47,28 @@ Filter parameters:
 async function handler(ctx) {
     const url = 'https://api.questn.com/consumer/explore/list/';
 
-    const parsedFilter: { category?: string; status_filter?: string; community_filter?: string; reward_filter?: string; chain_filter?: string; search?: string; count?: string; page?: string } = parseFilterStr(
-        ctx.req.param('filter')
-    );
+    const parsedFilter: {
+        category?: string;
+        status_filter?: string;
+        community_filter?: string;
+        rewards_filter?: string;
+        reward_filter?: string;
+        chain_filter?: string;
+        search?: string;
+        count?: string;
+    } = parseFilterStr(ctx.req.param('filter'));
 
+    const requestedLimit = Number(parsedFilter.count || ctx.req.query('limit'));
+    const count = Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : 20;
     const params = {
         category: parsedFilter.category || '200',
         status_filter: parsedFilter.status_filter || '100',
         community_filter: parsedFilter.community_filter || '0',
-        rewards_filter: parsedFilter.reward_filter || '0',
+        rewards_filter: parsedFilter.rewards_filter || parsedFilter.reward_filter || '0',
         chain_filter: parsedFilter.chain_filter || '0',
         search: parsedFilter.search || '',
-        count: parsedFilter.count || ctx.req.query('limit') || '20',
-        page: parsedFilter.page || '1',
+        count: String(count),
+        page: '1',
     };
 
     const response = await ofetch(`${url}?${new URLSearchParams(params)}`, {
@@ -77,7 +86,6 @@ async function handler(ctx) {
         author: item.community_info ? item.community_info.name : '',
         guid: item.id,
         pubDate: parseDate(item.start_time * 1000),
-        itunes_duration: item.end_time > 0 ? item.end_time - item.start_time : 0,
     }));
 
     return {
@@ -87,15 +95,6 @@ async function handler(ctx) {
         image: 'https://app.questn.com/static/svgs/logo-white.svg',
         logo: 'https://app.questn.com/static/svgs/logo-white.svg',
         author: 'QuestN',
-        item:
-            items && items.length > 0
-                ? items
-                : [
-                      {
-                          title: 'No events found',
-                          description: 'No events found',
-                          link: 'https://app.questn.com/explore',
-                      },
-                  ],
+        item: items,
     };
 }

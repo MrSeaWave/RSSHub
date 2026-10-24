@@ -1,8 +1,11 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Language, Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/video/:category?',
@@ -19,14 +22,14 @@ export const route: Route = {
     },
     name: '中证视频',
     description: `| 今日聚焦 | 传闻求证 | 高端访谈 | 投教课堂 | 直播汇 |
-  | -------- | -------- | -------- | -------- | ------ |`,
+| -------- | -------- | -------- | -------- | ------ |`,
     maintainers: ['nczitzk'],
     handler,
 };
 
 async function handler(ctx) {
     const { category = '今日聚焦' } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 50;
+    const limit = getRouteLimit(ctx, 50);
 
     const rootUrl = 'https://video.cs.com.cn';
     const apiCategoryUrl = new URL('web/api/getCategory', rootUrl).href;
@@ -43,7 +46,10 @@ async function handler(ctx) {
         sortType: c.categorySortType,
     }));
 
-    const selected = categories.find((c) => c.title === category || c.id === category);
+    const selected = categories.find((c) => c.title === category || String(c.id) === category);
+    if (!selected) {
+        throw new InvalidParameterError(`Unknown video category: ${category}. Use a category name or ID from ${rootUrl}.`);
+    }
 
     const currentUrl = new URL(`list.html?title=${selected.title}&id=${selected.id}`, rootUrl).href;
 
@@ -63,8 +69,8 @@ async function handler(ctx) {
         link: new URL(item.contentUrl, rootUrl).href,
         description: item.contentDetails,
         author: item.contentSource,
-        pubDate: timezone(parseDate(item.contentDatetime), +8),
-        updated: timezone(parseDate(item.updateDate), +8),
+        pubDate: timezone(parseDate(item.contentDatetime), 8),
+        updated: timezone(parseDate(item.updateDate), 8),
     }));
 
     const { data: currentResponse } = await got(currentUrl);
@@ -73,19 +79,18 @@ async function handler(ctx) {
 
     const title = $('title').text();
     const image = selected.image;
-    const icon = new URL($('link[rel="icon"]').prop('href'), rootUrl).href;
+    const icon = new URL($('link[rel="icon"]').prop('href')!, rootUrl).href;
 
     return {
         item: items,
         title: `${title} | ${selected.title}`,
         link: currentUrl,
         description: $('meta[name="Description"]').prop('content'),
-        language: $('html').prop('lang'),
+        language: $('html').prop('lang') as Language,
         image,
         icon,
         logo: icon,
         subtitle: $('meta[name="Keywords"]').prop('content'),
-        author: title.split('-').pop().trim(),
-        allowEmpty: true,
+        author: title.split('-').pop()!.trim(),
     };
 }

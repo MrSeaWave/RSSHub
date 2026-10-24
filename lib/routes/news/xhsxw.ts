@@ -1,14 +1,14 @@
-import { Route } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
+import { load } from 'cheerio';
+import pMap from 'p-map';
 
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
 import { parseDate } from '@/utils/parse-date';
-import { art } from '@/utils/render';
-import path from 'node:path';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
+
+import { renderDescription } from './templates/description';
 
 export const route: Route = {
     path: ['/xhsxw', '/whxw'],
@@ -28,14 +28,25 @@ export const route: Route = {
             source: ['news.cn/xhsxw.htm'],
         },
     ],
-    name: '新华社新闻',
+    name: '新闻',
     maintainers: ['nczitzk'],
     handler,
     url: 'news.cn/xhsxw.htm',
 };
 
+type NewsItem = DataItem & { link: string; description: string };
+type Detail = { description?: string };
+
+function parsePublishedTime(value: string | number | null | undefined) {
+    if ([undefined, null, ''].includes(value as string | null | undefined)) {
+        return;
+    }
+    const date = parseDate(value!);
+    return Number.isNaN(date.getTime()) ? undefined : timezone(date, 8);
+}
+
 async function handler(ctx) {
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 100;
+    const limit = getRouteLimit(ctx, 100);
 
     const rootUrl = 'http://www.news.cn';
     const currentUrl = new URL('xhsxw.htm', rootUrl).href;
@@ -54,10 +65,10 @@ async function handler(ctx) {
         data: { datasource: response },
     } = await got(apiUrl);
 
-    let items = response.slice(0, limit).map((item) => ({
+    let items: NewsItem[] = response.slice(0, limit).map((item) => ({
         title: item.title,
         link: new URL(item.publishUrl, rootUrl).href,
-        description: art(path.join(__dirname, 'templates/description.art'), {
+        description: renderDescription({
             images:
                 item.shareImages?.map((i) => ({
                     src: i.imageUrl,
@@ -68,27 +79,25 @@ async function handler(ctx) {
         author: item.author,
         category: item.keywords.split(/-|,/),
         guid: `news-${item.contentId}`,
-        pubDate: timezone(parseDate(item.publishTime), +8),
+        pubDate: parsePublishedTime(item.publishTime),
     }));
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
-                try {
+    items = await pMap(
+        items,
+        async (item) => {
+            let detail: Detail = {};
+            try {
+                detail = await cache.tryGet<Detail>(`news:detail:${item.link}`, async () => {
                     const { data: detailResponse } = await got(item.link);
-
                     const content = load(detailResponse);
-
-                    item.description += art(path.join(__dirname, 'templates/description.art'), {
-                        description: content('#detailContent').html(),
-                    });
-                } catch {
-                    // no-empty
-                }
-
-                return item;
-            })
-        )
+                    return { description: content('#detailContent').html() ?? undefined };
+                });
+            } catch {
+                // Preserve the source summary when the public detail is unavailable.
+            }
+            return { ...item, description: item.description + renderDescription(detail) };
+        },
+        { concurrency: 3 }
     );
 
     const title = $('title').text();
@@ -99,8 +108,8 @@ async function handler(ctx) {
         item: items,
         title,
         link: currentUrl,
-        description: title.split(/_/)[0],
-        language: 'zh',
+        description: title.split(/_/, 1)[0],
+        language: 'zh' as const satisfies Language,
         image,
         icon,
         logo: icon,

@@ -1,6 +1,7 @@
-import { Route } from '@/types';
-import util from './utils';
 import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
+
+import util from './utils';
 
 export const route: Route = {
     path: '/dc/:type',
@@ -17,20 +18,21 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['dc.nua.edu.cn/:type/list.htm'],
+            source: ['dc.nua.edu.cn/'],
+            target: '/dc/news',
         },
     ],
     name: 'School of Design',
     maintainers: ['evnydd0sf'],
     handler,
     description: `| News Type                | Parameters |
-  | ------------------------ | ---------- |
-  | 学院新闻 NEWS            | news       |
-  | 展览 EXHIBITION          | exhibition |
-  | 研创 RESEARCH & CREATION | rc         |
-  | 项目 PROJECT             | project    |
-  | 党团 PARTY               | party      |
-  | 后浪 YOUTH               | youth      |`,
+| ------------------------ | ---------- |
+| 学院新闻 NEWS            | news       |
+| 展览 EXHIBITION          | exhibition |
+| 研创 RESEARCH & CREATION | rc         |
+| 项目 PROJECT             | project    |
+| 党团 PARTY               | party      |
+| 后浪 YOUTH               | youth      |`,
 };
 
 async function handler(ctx) {

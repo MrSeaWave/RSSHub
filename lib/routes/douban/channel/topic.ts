@@ -1,5 +1,9 @@
-import { Route } from '@/types';
+import { html } from 'hono/html';
+
+import type { Route } from '@/types';
 import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/channel/:id/:nav?',
@@ -18,8 +22,8 @@ export const route: Route = {
     maintainers: ['umm233'],
     handler,
     description: `| 默认    | 热门 | 最新 |
-  | ------- | ---- | ---- |
-  | default | hot  | new  |`,
+| ------- | ---- | ---- |
+| default | hot  | new  |`,
 };
 
 async function handler(ctx) {
@@ -45,7 +49,7 @@ async function handler(ctx) {
 
     const channel_name = channel_info_response.data.title;
     const data = response.data.items;
-    let nav_name = '';
+    let nav_name: string;
 
     switch (nav) {
         case 'hot':
@@ -67,19 +71,18 @@ async function handler(ctx) {
         item: data
             .map((item) => {
                 if (item.external_payload.items === undefined) {
-                    const description = `作者：${item.author.name} | ${item.create_time} <br><br> ${item.abstract}">`;
+                    const description = String(html`<p>${item.abstract}</p>`);
 
                     return {
                         title: item.title,
                         description,
-                        pubDate: new Date(item.create_time),
+                        author: item.author?.name,
+                        pubDate: item.create_time ? timezone(parseDate(item.create_time), 8) : undefined,
                         link: item.url,
                     };
-                } else {
-                    return null;
                 }
+                return null;
             })
             .filter(Boolean),
-        allowEmpty: true,
     };
 }

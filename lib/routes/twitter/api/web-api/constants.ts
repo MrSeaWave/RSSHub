@@ -1,21 +1,16 @@
+import { buildGqlMap, fallbackIds, resolveQueryIds } from './gql-id-resolver';
+
 const baseUrl = 'https://x.com/i/api';
 
-const graphQLEndpointsPlain = [
-    '/graphql/E3opETHurmVJflFsUBVuUQ/UserTweets',
-    '/graphql/Yka-W8dz7RaEuQNkroPkYw/UserByScreenName',
-    '/graphql/HJFjzBgCs16TqxewQOeLNg/HomeTimeline',
-    '/graphql/DiTkXJgLqBBxCs7zaYsbtA/HomeLatestTimeline',
-    '/graphql/bt4TKuFz4T7Ckk-VvQVSow/UserTweetsAndReplies',
-    '/graphql/dexO_2tohK86JDudXXG3Yw/UserMedia',
-    '/graphql/Qw77dDjp9xCpUY-AXwt-yQ/UserByRestId',
-    '/graphql/UN1i3zUiCWa-6r-Uaho4fw/SearchTimeline',
-    '/graphql/Pa45JvqZuKcW1plybfgBlQ/ListLatestTweetsTimeline',
-    '/graphql/QuBlQ6SxNAQCt6-kBiCXCQ/TweetDetail',
-];
+// Initial gqlMap from fallback IDs, updated dynamically via initGqlMap()
+let gqlMap: Record<string, string> = buildGqlMap(fallbackIds);
 
-const gqlMap = Object.fromEntries(graphQLEndpointsPlain.map((endpoint) => [endpoint.split('/')[3].replace(/V2$|Query$|QueryV2$/, ''), endpoint]));
+const initGqlMap = async () => {
+    const queryIds = await resolveQueryIds();
+    gqlMap = buildGqlMap(queryIds);
+};
 
-const thirdPartySupportedAPI = ['UserByScreenName', 'UserByRestId', 'UserTweets', 'UserTweetsAndReplies', 'ListLatestTweetsTimeline', 'SearchTimeline'];
+const thirdPartySupportedAPI = ['UserByScreenName', 'UserByRestId', 'UserTweets', 'UserTweetsAndReplies', 'ListLatestTweetsTimeline', 'SearchTimeline', 'UserMedia'];
 
 const gqlFeatureUser = {
     hidden_profile_subscriptions_enabled: true,
@@ -96,22 +91,6 @@ const gqlFeatures = {
     Likes: gqlFeatureFeed,
 };
 
-const timelineParams = {
-    include_can_media_tag: 1,
-    include_cards: 1,
-    include_entities: 1,
-    include_profile_interstitial_type: 0,
-    include_quote_count: 0,
-    include_reply_count: 0,
-    include_user_entities: 0,
-    include_ext_reply_count: 0,
-    include_ext_media_color: 0,
-    cards_platform: 'Web-13',
-    tweet_mode: 'extended',
-    send_error_codes: 1,
-    simple_quoted_tweet: 1,
-};
-
 const bearerToken = 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
 
-export { baseUrl, gqlMap, gqlFeatures, timelineParams, bearerToken, thirdPartySupportedAPI };
+export { baseUrl, bearerToken, gqlFeatures, gqlMap, initGqlMap, thirdPartySupportedAPI };

@@ -1,9 +1,12 @@
-import { Route } from '@/types';
+import MarkdownIt from 'markdown-it';
+
+import { config } from '@/config';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import { config } from '@/config';
-import MarkdownIt from 'markdown-it';
+import { getRouteLimit } from '@/utils/route-limit';
+
 const md = MarkdownIt({
     html: true,
 });
@@ -35,14 +38,15 @@ async function handler(ctx) {
     const { owner, repo } = ctx.req.param();
 
     const apiUrl = `https://gitee.com/api/v5/repos/${owner}/${repo}/commits`;
+    const limit = getRouteLimit(ctx, 100);
     const response = await cache.tryGet(
-        apiUrl,
+        `${apiUrl}:${limit}`,
         async () =>
             (
                 await got(apiUrl, {
                     searchParams: {
                         access_token: config.gitee.access_token ?? undefined,
-                        per_page: ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 100,
+                        per_page: limit,
                         direction: 'desc',
                     },
                 })

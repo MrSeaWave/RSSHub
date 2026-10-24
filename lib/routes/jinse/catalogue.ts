@@ -1,13 +1,13 @@
-import { Route } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
+import { load } from 'cheerio';
 
+import type { Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
-import { art } from '@/utils/render';
-import path from 'node:path';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import { renderDescription } from './templates/description';
 
 const categories = {
     zhengce: '政策',
@@ -36,23 +36,23 @@ export const route: Route = {
         supportScihub: false,
     },
     name: '分类',
-    maintainers: ['nczitzk'],
+    maintainers: ['nczitzk', 'pseudoyu'],
     handler,
     description: `| 政策    | 行情         | DeFi | 矿业  | 以太坊 2.0 |
-  | ------- | ------------ | ---- | ----- | ---------- |
-  | zhengce | fenxishishuo | defi | kuang | 以太坊 2.0 |
+| ------- | ------------ | ---- | ----- | ---------- |
+| zhengce | fenxishishuo | defi | kuang | 以太坊 2.0 |
 
-  | 产业     | IPFS | 技术 | 百科  | 研报          |
-  | -------- | ---- | ---- | ----- | ------------- |
-  | industry | IPFS | tech | baike | capitalmarket |`,
+| 产业     | IPFS | 技术 | 百科  | 研报          |
+| -------- | ---- | ---- | ----- | ------------- |
+| industry | IPFS | tech | baike | capitalmarket |`,
 };
 
 async function handler(ctx) {
     const { category = 'zhengce' } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 50;
+    const limit = getRouteLimit(ctx, 50);
 
-    const rootUrl = 'https://www.jinse.cn';
-    const rootApiUrl = 'https://api.jinse.cn';
+    const rootUrl = 'https://www.jinse.com.cn';
+    const rootApiUrl = 'https://api.jinse.com.cn';
     const apiUrl = new URL('v6/www/information/list', rootApiUrl).href;
     const currentUrl = rootUrl;
 
@@ -66,8 +66,8 @@ async function handler(ctx) {
 
     let items = response.list.slice(0, limit).map((item) => ({
         title: item.title,
-        link: item.extra.topic_url,
-        description: art(path.join(__dirname, 'templates/description.art'), {
+        link: item.extra.topic_url.replace(/\/\/(?:www\.|m\.)?jinse\.com(?:\.cn)?(?=\/)/, '//www.jinse.com.cn'),
+        description: renderDescription({
             images:
                 item.extra.thumbnails_pics.length > 0
                     ? item.extra.thumbnails_pics.map((p) => ({
@@ -78,7 +78,7 @@ async function handler(ctx) {
         }),
         author: item.extra.nickname,
         guid: `jinse${/\/lives\//.test(item.extra.topic_url) ? '-lives' : ''}-${item.extra.topic_id}`,
-        pubDate: parseDate(item.extra.published_at, 'X'),
+        pubDate: parseTimestamp(item.extra.published_at),
         upvotes: item.extra.up_counts ?? 0,
         downvotes: item.extra.down_counts ?? 0,
         comments: item.extra.comment_count ?? 0,
@@ -95,8 +95,8 @@ async function handler(ctx) {
 
                 const content = load(detailResponse);
 
-                item.description += art(path.join(__dirname, 'templates/description.art'), {
-                    description: content('section.js-article-content').html() || content('div.js-article').html(),
+                item.description += renderDescription({
+                    description: (content('section.js-article-content').html() || content('div.js-article').html()) ?? undefined,
                 });
                 item.category = content('section.js-article-tag_state_1 a span')
                     .toArray()
@@ -107,25 +107,30 @@ async function handler(ctx) {
         )
     );
 
-    const { data: currentResponse } = await got(currentUrl);
+    const currentResponse = await ofetch.raw<string>(currentUrl, { redirect: 'manual' });
+    const metadataHtml = currentResponse.status === 200 ? (currentResponse._data ?? '') : '';
+    const $ = load(metadataHtml);
 
-    const $ = load(currentResponse);
-
-    const author = $('meta[name="author"]').prop('content');
+    const author = $('meta[name="author"]').prop('content') || '金色财经';
     const image = $('a.js-logoBox img').prop('src');
-    const icon = new URL($('link[rel="favicon"]').prop('href'), rootUrl).href;
+    const iconHref = $('link[rel="favicon"]').prop('href');
+    const icon = iconHref ? new URL(iconHref, rootUrl).href : undefined;
 
     return {
         item: items,
         title: `${author} - ${Object.hasOwn(categories, category) ? categories[category] : category}`,
         link: currentUrl,
         description: $('meta[name="description"]').prop('content'),
-        language: $('html').prop('lang'),
+        language: ($('html').prop('lang') || 'zh-CN') as Language,
         image,
         icon,
         logo: icon,
         subtitle: $('meta[name="keywords"]').prop('content'),
         author,
-        allowEmpty: true,
     };
+}
+
+function parseTimestamp(value?: number | string): Date | undefined {
+    const date = value !== undefined && value !== null && value !== '' ? parseDate(value, 'X') : undefined;
+    return date && Number.isFinite(date.getTime()) ? date : undefined;
 }

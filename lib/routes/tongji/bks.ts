@@ -1,7 +1,9 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/bks',
@@ -38,17 +40,17 @@ async function handler() {
         link,
         description: '同济大学本科生院通知公告',
         item: list?.toArray().map((item) => {
-            item = $(item);
-            const a = item.find('a');
-            const dateItem = item.find('.li-data');
+            const $item = $(item);
+            const a = $item.find('a');
+            const dateItem = $item.find('.li-data');
             const yearAndMonth = dateItem.find('span').text().split('-');
             const day = dateItem.find('p').text();
             const date = `${yearAndMonth[0]}-${yearAndMonth[1]}-${day}`;
             return {
-                title: item.find('.li-tt-title').text(),
-                description: item.find('.intro').text(),
-                link: new URL(a.attr('href'), link).href,
-                pubDate: parseDate(date, 'YYYY-MM-DD'),
+                title: $item.find('.li-tt-title').text(),
+                description: $item.find('.intro').text(),
+                link: new URL(a.attr('href')!, link).href,
+                pubDate: timezone(parseDate(date, 'YYYY-MM-DD'), 8),
             };
         }),
     };

@@ -1,9 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import { config } from '@/config';
+import type { Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
-import * as cheerio from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
-import { config } from '@/config';
 
 type NewsItem = {
     cid: string;
@@ -44,13 +45,18 @@ type InitialData = {
     };
 };
 
+const parsePublicationDate = (value: number) => {
+    const date = Number.isFinite(value) && value > 0 ? parseDate(value, 'X') : undefined;
+    return date && Number.isFinite(date.getTime()) ? date : undefined;
+};
+
 const parseList = (list: NewsItem[]) =>
     list.map((item) => ({
         title: item.title,
         author: item.author,
         description: item.brief.trim().replaceAll('\n', '<br>'),
         link: `https://ak.hypergryph.com/news/${item.cid}`,
-        pubDate: parseDate(item.displayTime, 'X'),
+        pubDate: parsePublicationDate(item.displayTime),
     }));
 
 export const route: Route = {
@@ -67,42 +73,49 @@ export const route: Route = {
     maintainers: ['Astrian'],
     handler,
     url: 'ak-conf.hypergryph.com/news',
-    description: `
-  | 全部 | 最新   | 公告         | 活动     | 新闻 |
-  | ---- | ------ | ------------ | -------- | ---- |
-  | ALL  | LATEST | ANNOUNCEMENT | ACTIVITY | NEWS |`,
+    description: `| 全部 | 最新   | 公告         | 活动     | 新闻 |
+| ---- | ------ | ------------ | -------- | ---- |
+| ALL  | LATEST | ANNOUNCEMENT | ACTIVITY | NEWS |`,
 };
 
 async function handler(ctx) {
     const { group = 'ALL' } = ctx.req.param();
 
-    const initialData: Promise<InitialData> = await cache.tryGet(
+    const initialData: InitialData = await cache.tryGet(
         'hypergryph:arknights:news',
-        async () => {
+        async (): Promise<InitialData> => {
             const response = await ofetch('https://ak.hypergryph.com/news');
-            const $ = cheerio.load(response);
+            const $ = load(response);
             const renderData = JSON.parse(
                 $('script:contains("initialData")')
                     .first()
                     .text()
                     .match(/self\.__next_f\.push\((.+)\)/)?.[1] ?? ''
             );
-            return JSON.parse(renderData[1].slice(2))[3].initialData as InitialData;
+            return JSON.parse(renderData[1].slice(2))[3].initialData;
         },
         config.cache.routeExpire,
         false
     );
 
-    const list = group === 'ALL' ? Object.values(initialData).flatMap(({ list }) => parseList(list)) : parseList(initialData[group].list);
+    const candidates = group === 'ALL' ? Object.values(initialData).flatMap(({ list }) => parseList(list)) : parseList(initialData[group].list);
+    const seenLinks = new Set<string>();
+    const list = candidates.filter((item) => {
+        if (seenLinks.has(item.link)) {
+            return false;
+        }
+        seenLinks.add(item.link);
+        return true;
+    });
 
     const items = await Promise.all(
         list.map((item) =>
             cache.tryGet(item.link, async () => {
                 const response = await ofetch(item.link);
-                const $ = cheerio.load(response);
+                const $ = load(response);
 
                 const description = $('div > div > div > div > div > div > div:nth-child(4)');
-                item.description = description.length ? description.html() : item.description;
+                item.description = (description.length ? description.html() : item.description) ?? '';
 
                 return item;
             })
@@ -113,6 +126,6 @@ async function handler(ctx) {
         title: '《明日方舟》游戏公告与新闻',
         link: 'https://ak.hypergryph.com/news',
         item: items,
-        language: 'zh-cn',
+        language: 'zh-CN' as const satisfies Language,
     };
 }

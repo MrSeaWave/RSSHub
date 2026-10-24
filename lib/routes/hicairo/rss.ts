@@ -1,6 +1,7 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 
 export const route: Route = {
     path: '/',
@@ -21,10 +22,11 @@ async function handler() {
     const currentUrl = 'https://www.hicairo.com';
     const response = await got(`${currentUrl}/feed.php`);
     const $ = load(response.data, { xmlMode: true });
-    const title_main = $('channel > title').text();
-    const description_main = $('channel > description').text();
+    const titleMain = $('channel > title').text();
+    const descriptionMain = $('channel > description').text();
     const items = $('channel > item')
-        .map((_, item) => {
+        .toArray()
+        .map((item) => {
             const $item = $(item);
             const link = $item.find('link').text();
             const title = $item.find('title').text();
@@ -36,12 +38,11 @@ async function handler() {
                 title,
                 description,
             };
-        })
-        .get();
+        });
 
     return {
-        title: title_main,
-        description: description_main,
+        title: titleMain,
+        description: descriptionMain,
         link: currentUrl,
         item: items,
     };

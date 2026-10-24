@@ -1,7 +1,10 @@
-import { Route } from '@/types';
+import pMap from 'p-map';
 
-import { parseDate } from '@/utils/parse-date';
+import type { DataItem, Route } from '@/types';
 import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+
 import { getArticle } from './utils';
 
 export const route: Route = {
@@ -29,7 +32,7 @@ async function handler(ctx) {
         method: 'POST',
         body: {
             variables: {
-                take: ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 24,
+                take: getRouteLimit(ctx, 24),
                 skip: 0,
                 orderBy: { publishedDate: 'desc' },
                 filter: {
@@ -38,63 +41,64 @@ async function handler(ctx) {
                     ...sectionFilter,
                 },
             },
-            query: `
-fragment section on Section {
-  id
-  name
-  slug
-  state
-  __typename
-}
+            query: /* GraphQL */ `
+                fragment section on Section {
+                    id
+                    name
+                    slug
+                    state
+                    __typename
+                }
 
-fragment category on Category {
-  id
-  name
-  slug
-  state
-  __typename
-}
+                fragment category on Category {
+                    id
+                    name
+                    slug
+                    state
+                    __typename
+                }
 
-fragment listingPost on Post {
-  id
-  slug
-  title
-  brief
-  publishedDate
-  state
-  sections(where: {state: {equals: "active"}}) {
-    ...section
-    __typename
-  }
-  categories(where: {state: {equals: "active"}}) {
-    ...category
-    __typename
-  }
-  isFeatured
-  __typename
-}
+                fragment listingPost on Post {
+                    id
+                    slug
+                    title
+                    brief
+                    publishedDate
+                    state
+                    sections(where: { state: { equals: "active" } }) {
+                        ...section
+                        __typename
+                    }
+                    categories(where: { state: { equals: "active" } }) {
+                        ...category
+                        __typename
+                    }
+                    isFeatured
+                    __typename
+                }
 
-query ($take: Int, $skip: Int, $orderBy: [PostOrderByInput!]!, $filter: PostWhereInput!) {
-  postsCount(where: $filter)
-  posts(take: $take, skip: $skip, orderBy: $orderBy, where: $filter) {
-    ...listingPost
-    __typename
-  }
-}`,
+                query ($take: Int, $skip: Int, $orderBy: [PostOrderByInput!]!, $filter: PostWhereInput!) {
+                    postsCount(where: $filter)
+                    posts(take: $take, skip: $skip, orderBy: $orderBy, where: $filter) {
+                        ...listingPost
+                        __typename
+                    }
+                }
+            `,
         },
     });
 
-    const items = response.data.posts.map((e) => ({
+    const items: DataItem[] = response.data.posts.map((e) => ({
         title: e.title,
         pubDate: parseDate(e.publishedDate),
         category: [...(e.sections ?? []).map((_) => `section:${_.name}`), ...(e.categories ?? []).map((_) => `category:${_.name}`)],
-        link: `${rootUrl}/${'story'}/${e.slug}`,
+        link: `${rootUrl}/story/${e.slug}`,
     }));
 
-    const list = await Promise.all(items.map((item) => getArticle(item)));
+    const list = await pMap(items, (item) => getArticle(item), { concurrency: 3 });
 
     return {
-        title: `鏡週刊 Mirror Media - ${category}`,
+        title: `鏡週刊 Mirror Media - ${category ?? section}`,
         link: rootUrl,
         item: list,
     };

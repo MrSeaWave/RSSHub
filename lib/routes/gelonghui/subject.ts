@@ -1,13 +1,16 @@
-import { Route, ViewType } from '@/types';
-import cache from '@/utils/cache';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+
 import { parseItem } from './utils';
 
 export const route: Route = {
     path: '/subject/:id',
-    categories: ['finance', 'popular'],
+    categories: ['finance'],
     view: ViewType.Articles,
     example: '/gelonghui/subject/4',
     parameters: { id: '主题编号，可在主题页 URL 中找到' },
@@ -31,6 +34,9 @@ export const route: Route = {
 
 async function handler(ctx) {
     const id = ctx.req.param('id');
+    if (!id || !/^[1-9]\d*$/.test(id)) {
+        throw new InvalidParameterError('id must be a positive integer.');
+    }
     const apiUrl = `https://www.gelonghui.com/api/subjects/${id}/contents`;
     const pageUrl = `https://www.gelonghui.com/subject/${id}`;
     const { data: response } = await got(pageUrl);
@@ -50,7 +56,7 @@ async function handler(ctx) {
         pubDate: parseDate(item.timestamp, 'X'),
     }));
 
-    const items = await Promise.all(list.map((item) => parseItem(item, cache.tryGet)));
+    const items = await Promise.all(list.map((item) => parseItem(item)));
 
     return {
         title: `格隆汇 - 主题 ${$('span.user-nick').text()} 的文章`,

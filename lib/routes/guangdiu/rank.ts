@@ -1,8 +1,19 @@
-import { Route } from '@/types';
+import { type Cheerio, load } from 'cheerio';
+import { type AnyNode, cloneNode, Document } from 'domhandler';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseRelativeDate } from '@/utils/parse-date';
+
+function copyElements<T extends AnyNode>(selection: Cheerio<T>): Cheerio<T> {
+    const copy = selection.map((_, element) => cloneNode(element, true));
+    const root = new Document(copy.toArray());
+    copy.each((_, element) => {
+        element.parent = root;
+    });
+    return copy;
+}
 
 const host = 'https://guangdiu.com';
 
@@ -21,13 +32,13 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['guangdiu.com/rank'],
+            source: ['guangdiu.com/rank.php'],
         },
     ],
     name: '一小时风云榜',
     maintainers: ['fatpandac'],
     handler,
-    url: 'guangdiu.com/rank',
+    url: 'guangdiu.com/rank.php',
 };
 
 async function handler() {
@@ -36,28 +47,30 @@ async function handler() {
     const response = await got(url);
     const $ = load(response.data);
     const list = $('div.hourrankitem')
-        .map((_index, item) => ({
+        .toArray()
+        .map((item): DataItem => ({
             title: $(item).find('a.hourranktitle').text(),
-            link: new URL($(item).find('a.hourranktitle').attr('href'), host).href,
-        }))
-        .get();
+            link: new URL($(item).find('a.hourranktitle').attr('href')!, host).href,
+        }));
 
     const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
+        list.map(async (item) => {
+            const article = await cache.tryGet(`guangdiu:rank:article:${item.link}`, async () => {
                 const detailResponse = await got(item.link);
                 const $ = load(detailResponse.data);
 
-                item.description = $('#dabstract').html() + $('a.dgotobutton').html('前往购买');
-                item.pubDate = parseRelativeDate($('div.hourranktime').text());
+                const description = $('#dabstract').html()! + $('a.dgotobutton').html('前往购买');
+                const publishTime = copyElements($('.dinfoweibo').first()).children(':not(.latesttime)').remove().end().text().trim();
+                const pubDate = publishTime ? parseRelativeDate(publishTime) : undefined;
 
-                return item;
-            })
-        )
+                return { description, pubDate };
+            });
+            return { ...item, ...article };
+        })
     );
 
     return {
-        title: `逛丢 - 一小时风云榜`,
+        title: '逛丢 - 一小时风云榜',
         link: url,
         item: items,
     };

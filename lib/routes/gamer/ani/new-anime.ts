@@ -1,11 +1,12 @@
-import { Route, ViewType } from '@/types';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/ani/new_anime',
-    categories: ['anime', 'popular'],
+    categories: ['anime'],
     view: ViewType.Videos,
     example: '/gamer/ani/new_anime',
     parameters: {},
@@ -17,10 +18,15 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
+    // Keep both native sources separate because Radar merges legacy rule arrays by index.
     radar: [
         {
+            source: ['ani.gamer.com.tw/animeVideo.php', 'ani.gamer.com.tw/animeRef.php'],
+            target: '/ani/new_anime',
+        },
+        {
             source: ['ani.gamer.com.tw/'],
-            target: '/new_anime',
+            target: '/ani/new_anime',
         },
     ],
     name: '動畫瘋 - 最後更新',
@@ -37,7 +43,7 @@ async function handler() {
         title: `${item.title} ${item.volume}`,
         description: `<img src="${item.cover}">`,
         link: `${rootUrl}/animeVideo.php?sn=${item.videoSn}`,
-        pubDate: timezone(parseDate(`${item.upTime} ${item.upTimeHours}`, 'MM/DD HH:mm'), +8),
+        pubDate: timezone(parseDate(`${item.upTime} ${item.upTimeHours}`, 'MM/DD HH:mm'), 8),
     }));
 
     return {

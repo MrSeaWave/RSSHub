@@ -1,6 +1,6 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
-import { parseDate } from '@/utils/parse-date';
+import { parseDateInTimezone } from '@/utils/parse-date-in-timezone';
 
 export const route: Route = {
     path: '/disclosure/:query?',
@@ -22,18 +22,23 @@ export const route: Route = {
 
 async function handler(ctx) {
     const query = ctx.req.param('query') ?? ''; // beginDate=2018-08-18&endDate=2020-09-01&productId=600696
-    const queries = query.split('&').reduce((acc, cur) => {
-        const [key, value] = cur.split('=');
-        acc[key] = value;
-        return acc;
-    }, {});
+    const queries: Record<string, string> = {};
+    if (query) {
+        for (const pair of query.split('&')) {
+            const [key, value] = pair.split('=', 2);
+            if (key) {
+                queries[key] = value;
+            }
+        }
+    }
     const pageUrl = `https://www.sse.com.cn/assortment/stock/list/info/announcement/index.shtml?productId=${queries.productId}`;
 
     const response = await got('https://query.sse.com.cn/security/stock/queryCompanyBulletin.do', {
         searchParams: {
-            isPagination: true,
             securityType: '0101,120100,020100,020200,120200',
             reportType: 'ALL',
+            ...queries,
+            isPagination: true,
             'pageHelp.pageSize': 25,
             'pageHelp.pageCount': 50,
             'pageHelp.pageNo': 1,
@@ -41,7 +46,6 @@ async function handler(ctx) {
             'pageHelp.cacheSize': 1,
             'pageHelp.endPage': 5,
             _: Date.now(),
-            ...queries,
         },
         headers: {
             Referer: pageUrl,
@@ -53,13 +57,14 @@ async function handler(ctx) {
     const items = response.data.result.map((item) => ({
         title: item.TITLE,
         description: `${pdfHost}${item.URL}`,
-        pubDate: parseDate(item.ADDDATE),
+        pubDate: item.ADDDATE ? parseDateInTimezone(item.ADDDATE, 8) : undefined,
         link: `${pdfHost}${item.URL}`,
-        author: item.SECURITY_NAME,
+        author: item.SECURITY_NAME || undefined,
     }));
+    const issuer = items.find((item) => item.author)?.author ?? queries.productId ?? '';
 
     return {
-        title: `上海证券交易所 - 上市公司信息 - ${items[0].author}最新公告`,
+        title: `上海证券交易所 - 上市公司信息 - ${issuer}最新公告`,
         link: pageUrl,
         item: items,
     };

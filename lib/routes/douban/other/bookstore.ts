@@ -1,4 +1,4 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
 
 export const route: Route = {
@@ -14,7 +14,7 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    name: '豆瓣书店',
+    name: '书店',
     maintainers: ['xyqfer'],
     handler,
 };

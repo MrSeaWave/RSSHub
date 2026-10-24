@@ -1,8 +1,9 @@
-import { Route } from '@/types';
-import ofetch from '@/utils/ofetch'; // 统一使用的请求库
-import { parseDate } from '@/utils/parse-date'; // 解析日期的工具函数
-import timezone from '@/utils/timezone';
 import CryptoJS from 'crypto-js';
+
+import type { Route } from '@/types';
+import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/daily-blog',
@@ -21,7 +22,7 @@ export const route: Route = {
     radar: [
         {
             source: ['daily-blog.chlinlearn.top/blogs/*'],
-            target: '/chlinlearn/daily-blog',
+            target: '/daily-blog',
         },
     ],
     handler: async () => {
@@ -32,7 +33,7 @@ export const route: Route = {
             headers: {
                 Referer: 'https://daily-blog.chlinlearn.top/blogs/1',
                 'x-req-nonce': r,
-                'x-req-timestamp': n,
+                'x-req-timestamp': String(n),
                 'x-req-key': o,
             },
         });
@@ -40,15 +41,11 @@ export const route: Route = {
             title: item.title,
             link: item.url,
             author: item.author,
-            img: item.icon,
-            pubDate: timezone(parseDate(item.publishTime), +8),
+            pubDate: timezone(parseDate(item.publishTime), 8),
         }));
         return {
-            // 源标题
             title: '值得一读技术博客',
-            // 源链接
             link: 'https://daily-blog.chlinlearn.top/blogs/1',
-            // 源文章
             item: items,
         };
     },

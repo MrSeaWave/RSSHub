@@ -1,4 +1,5 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
+
 import { handler } from './common/review';
 
 export const route: Route = {
@@ -8,7 +9,7 @@ export const route: Route = {
     parameters: {
         id: '游戏 ID，游戏主页 URL 中获取',
         order: '排序方式，空为综合，可选如下',
-        lang: '语言，`zh-CN` 或 `zh-TW`，默认为 `zh-CN`',
+        lang: '语言，`zh_CN` 或 `zh_TW`，默认为 `zh_CN`',
     },
     features: {
         requireConfig: false,
@@ -27,7 +28,7 @@ export const route: Route = {
     name: '游戏评价',
     maintainers: ['hoilc', 'TonyRL'],
     handler,
-    description: `| 最新   | 综合 |
-| --- | --- |
-| new | hot |`,
+    description: `| 最新 | 综合 |
+| ---- | ---- |
+| new  | hot  |`,
 };

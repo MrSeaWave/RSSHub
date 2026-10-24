@@ -1,8 +1,10 @@
-import type { Route, DataItem } from '@/types';
-import ofetch from '@/utils/ofetch';
 import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
+import ofetch from '@/utils/ofetch';
 import { parseRelativeDate } from '@/utils/parse-date';
-import cache from '@/utils/cache';
+
+import { fetchDataItemCached, getArticleList } from './fetcher';
 
 export const route: Route = {
     path: '/docs',
@@ -22,19 +24,19 @@ export const route: Route = {
             source: ['yystv.cn/docs'],
         },
     ],
-    name: '游研社 - 全部文章',
+    name: '全部文章',
     maintainers: ['HaitianLiu', 'yy4382'],
     handler,
     url: 'yystv.cn/docs',
 };
 
 async function handler() {
-    const url = `https://www.yystv.cn/docs`;
+    const url = 'https://www.yystv.cn/docs';
     const response = await ofetch(url);
 
     const $ = load(response);
 
-    const itemList = $('.list-container li')
+    const legacyItemList = $('.list-container li')
         .toArray()
         .map((item) => {
             const itemElement = $(item);
@@ -48,21 +50,22 @@ async function handler() {
             return info;
         }) satisfies DataItem[];
 
+    const currentItemList = getArticleList($);
+    const itemList = currentItemList.length ? currentItemList : legacyItemList;
+
     const items = (await Promise.all(
-        itemList.map(
-            (item) =>
-                cache.tryGet(item.link, async () => {
-                    const resp = await ofetch(item.link);
-                    const $ = load(resp);
-                    item.description = $('#main section.article-section .doc-content > div').html() || item.description;
-                    return item;
-                }) as Promise<DataItem>
+        itemList.map((item) =>
+            fetchDataItemCached(item.link, (articleContent) => {
+                const $ = load(articleContent);
+                item.description = $('#main section.article-section .doc-content > div').html() || item.description;
+                return item;
+            })
         )
     )) satisfies DataItem[];
 
     return {
         title: '游研社-' + $('title').text(),
-        link: `https://www.yystv.cn/docs`,
+        link: 'https://www.yystv.cn/docs',
         item: items,
     };
 }

@@ -1,19 +1,27 @@
-import { type Cheerio, type CheerioAPI, type Element, load } from 'cheerio';
-import ofetch from '@/utils/ofetch';
+import type { Cheerio, CheerioAPI } from 'cheerio';
+import { load } from 'cheerio';
+import type { Element } from 'domhandler';
+import { html } from 'hono/html';
+
 import type { DataItem } from '@/types';
-import { parseDate } from '@/utils/parse-date';
 import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
+
 import type { LinkData, VideoSetup } from './types';
-import asyncPool from 'tiny-async-pool';
 
 export function getDataItem(href: string) {
     const origin = 'https://www.cfr.org';
-    const link = `${origin}${href}`;
+    const link = new URL(href, origin).href;
 
     return cache.tryGet(link, async () => {
-        const prefix = href?.split('/')[1];
+        const prefix = new URL(link).pathname.split('/', 2)[1];
         const res = await ofetch(link);
         const $ = load(res);
+
+        if ($('#page-content').length) {
+            return { ...parseCurrentPage($), link };
+        }
 
         let dataItem: DataItem;
 
@@ -56,7 +64,45 @@ export function getDataItem(href: string) {
             ...dataItem,
             link,
         };
-    }) as Promise<DataItem>;
+    });
+}
+
+interface CurrentMetadata {
+    headline?: string;
+    name?: string;
+    datePublished?: string;
+    dateModified?: string;
+    uploadDate?: string;
+    embedUrl?: string;
+    author?: Array<{ name?: string }> | { name?: string };
+    '@graph'?: CurrentMetadata[];
+}
+
+function parseCurrentPage($: CheerioAPI): DataItem {
+    const metadata = $('script[type="application/ld+json"]')
+        .toArray()
+        .flatMap((script) => {
+            const data = JSON.parse($(script).text()) as CurrentMetadata | CurrentMetadata[];
+            return Array.isArray(data) ? data : (data['@graph'] ?? [data]);
+        })
+        .find((data) => data.headline || data.datePublished || data.uploadDate);
+    const published = metadata?.datePublished ?? metadata?.uploadDate;
+    const authors = metadata?.author ? (Array.isArray(metadata.author) ? metadata.author : [metadata.author]) : [];
+    const video = metadata?.embedUrl ? html`<iframe src="${metadata.embedUrl}" allowfullscreen></iframe>` : '';
+    const figure = $('[data-topper] figure').first();
+    const content = $('#page-content');
+    content.find('aside, nav').remove();
+    return {
+        title: metadata?.headline ?? metadata?.name ?? $('h1').text(),
+        pubDate: published ? parseDate(published) : undefined,
+        updated: metadata?.dateModified ? parseDate(metadata.dateModified) : undefined,
+        author:
+            authors
+                .map((author) => author.name)
+                .filter(Boolean)
+                .join(', ') || undefined,
+        description: `${figure.length ? `<figure>${figure.html()}</figure>` : ''}${video}${content.html() ?? ''}`,
+    };
 }
 
 function parseArticle($: CheerioAPI): DataItem {
@@ -229,7 +275,8 @@ function parseDefault($): DataItem {
 
 function parseLinkData($: CheerioAPI) {
     try {
-        const data = (<LinkData>JSON.parse($('script[type="application/ld+json"]').text()))['@graph'][0];
+        const linkData: LinkData = JSON.parse($('script[type="application/ld+json"]').text());
+        const data = linkData['@graph'][0];
 
         return {
             title: data.name,
@@ -242,14 +289,18 @@ function parseLinkData($: CheerioAPI) {
 
 function getVideoIframe($ele: Cheerio<Element>) {
     const setup = $ele.find('video').data('setup') as VideoSetup;
-    if (setup) {
-        const youtubeSource = setup.sources.find((i) => i.type === 'video/youtube');
-        if (youtubeSource) {
-            const videoId = youtubeSource.src.match(/\?v=([^&]+)/)?.[1];
-            if (videoId) {
-                return `<iframe src="https://www.youtube-nocookie.com/embed/${videoId}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`;
-            }
-        }
+    if (!setup) {
+        return;
+    }
+
+    const youtubeSource = setup.sources.find((i) => i.type === 'video/youtube');
+    if (!youtubeSource) {
+        return;
+    }
+
+    const videoId = youtubeSource.src.match(/\?v=([^&]+)/)?.[1];
+    if (videoId) {
+        return `<iframe src="https://www.youtube-nocookie.com/embed/${videoId}" width="640" height="360" frameborder="0" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
     }
 }
 
@@ -273,12 +324,4 @@ function parseDescription($description: Cheerio<Element>, $: CheerioAPI) {
     const description = $description.html() ?? '';
 
     return description;
-}
-
-export async function asyncPoolAll<IN, OUT>(poolLimit: number, array: readonly IN[], iteratorFn: (generator: IN) => Promise<OUT>) {
-    const results: Awaited<OUT[]> = [];
-    for await (const result of asyncPool(poolLimit, array, iteratorFn)) {
-        results.push(result);
-    }
-    return results;
 }

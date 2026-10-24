@@ -1,28 +1,48 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import { notesUrl, extractNotes } from '../utils';
+
+import type { Language, Route } from '@/types';
+
+import { createPageFetcher, extractNotes, notesUrl } from '../utils';
 
 export const route: Route = {
-    path: '/notes/:lang?/topic/:topic',
-    name: 'Unknown',
+    path: ['/notes/:lang/topic/:topic', '/notes/topic/:topic'],
+    categories: ['anime'],
+    example: '/qoo-app/notes/en/topic/QooAppGacha',
+    parameters: {
+        lang: 'Language, see the table above, empty means `中文`',
+        topic: 'Hashtag name without `#`',
+    },
+    features: {
+        requireConfig: false,
+        requirePuppeteer: true,
+        antiCrawler: false,
+        supportBT: false,
+        supportPodcast: false,
+        supportScihub: false,
+    },
+    name: 'Hot Hashtags',
     maintainers: ['TonyRL'],
     handler,
 };
 
 async function handler(ctx) {
-    const { topic, lang } = ctx.req.param();
-    const link = `${notesUrl}${lang ? `/${lang}` : ''}/topic/${topic}`;
+    const pageFetcher = createPageFetcher();
+    try {
+        const { topic, lang } = ctx.req.param();
+        const link = `${notesUrl}${lang ? `/${lang}` : ''}/topic/${topic}`;
 
-    const { data: response } = await got(link);
-    const $ = load(response);
+        const response = await pageFetcher.get(link);
+        const $ = load(response);
 
-    const items = extractNotes($);
+        const items = extractNotes($);
 
-    return {
-        title: $('head title').text(),
-        link,
-        language: $('html').attr('lang'),
-        item: items,
-    };
+        return {
+            title: $('head title').text(),
+            link,
+            language: $('html').attr('lang') as Language,
+            item: items,
+        };
+    } finally {
+        await pageFetcher.close();
+    }
 }

@@ -1,16 +1,13 @@
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
-
-import { art } from '@/utils/render';
-import path from 'node:path';
 import { parseDate } from '@/utils/parse-date';
 
-const renderDescription = (description, images) => art(path.join(__dirname, '../templates/description.art'), { description, images });
+import { renderDescription } from '../templates/description';
+
+const gameNames = { 1: 'bh3', 2: 'ys', 3: 'bh2', 4: 'wd', 5: 'dby', 6: 'sr', 8: 'zzz' };
 
 const post2item = (e) => {
     const author = e.user.nickname;
     const title = e.post.subject;
-    const link = `https://www.miyoushe.com/ys/article/${e.post.post_id}`;
+    const link = `https://www.miyoushe.com/${gameNames[e.post.game_id] ?? 'ys'}/article/${e.post.post_id}`;
     let describe = e.post.content || '';
     try {
         describe = JSON.parse(e.post.content).describe;

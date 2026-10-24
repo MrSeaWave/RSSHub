@@ -1,5 +1,7 @@
-import { Route } from '@/types';
 import type { Context } from 'hono';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 
 import { baseUrl, getCitys, getDistricts } from './utils';
 
@@ -20,19 +22,20 @@ export const route: Route = {
 async function handler(ctx: Context) {
     const citys = await getCitys();
 
-    const list = await Promise.all(
-        citys.map(async (city) => ({
+    const list = await pMap(
+        citys,
+        async (city) => ({
             ...city,
             district: await getDistricts(city.id),
-        }))
+        }),
+        { concurrency: 3 }
     );
-    const requestHost = new URL(ctx.req.url).host;
+    const requestOrigin = new URL(ctx.req.url).origin;
 
     const items = list.flatMap((city) =>
         city.district.map((district) => ({
             title: `${city.chCityName} - ${district.name}`,
-            description: `${city.chCityName} - ${district.name}`,
-            link: `https://${requestHost}/wellcee/rent/${city.chCityName}/${district.name}`,
+            link: `${requestOrigin}/wellcee/rent/${encodeURIComponent(city.chCityName)}/${encodeURIComponent(district.name)}`,
         }))
     );
 

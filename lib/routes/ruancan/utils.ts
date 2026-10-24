@@ -1,9 +1,12 @@
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
-const fetchFeed = async (ctx, currentUrl) => {
+export const fetchFeed = async (ctx, currentUrl) => {
     const rootUrl = 'https://www.ruancan.com';
     currentUrl = `${rootUrl}${currentUrl}`;
 
@@ -14,21 +17,26 @@ const fetchFeed = async (ctx, currentUrl) => {
 
     const $ = load(response.data);
 
-    let items = $('.item-title a')
-        .slice(0, ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 15)
+    const queryLimit = ctx.req.query('limit');
+    const requestedLimit = queryLimit?.trim() ? Number(queryLimit) : NaN;
+    const limit = Number.isFinite(requestedLimit) && requestedLimit >= 0 ? Math.floor(requestedLimit) : 15;
+    const list = $('.item-title a');
+    let items = (list.length ? list : $('.post-loop-list > .item > a'))
+        .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
             return {
-                title: item.text(),
-                link: item.attr('href'),
+                title: $item.text(),
+                link: $item.attr('href'),
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
+    items = await pMap(
+        items,
+        async (item) => {
+            const detail = await cache.tryGet(item.link!, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,
@@ -38,25 +46,24 @@ const fetchFeed = async (ctx, currentUrl) => {
 
                 content('.entry-copyright').remove();
 
-                content('.entry-content div').each(function () {
-                    if (/^ruanc-\d+/.test(content(this).attr('id'))) {
-                        content(this).remove();
+                content('.entry-content div').each((_, el) => {
+                    if (/^ruanc-\d+/.test(content(el).attr('id')!)) {
+                        content(el).remove();
                     }
                 });
 
-                content('figure').each(function () {
-                    content(this).html(`<img src="${content(this).find('a').attr('href')}">`);
-                });
-
-                item.description = content('.entry-content').html();
-                item.category = content('.entry-info a[rel="category tag"]')
+                const description = content('.entry-content').html();
+                const category = content('.entry-info a[rel~="category"]')
                     .toArray()
                     .map((c) => content(c).text());
-                item.pubDate = parseDate(content('.entry-info .entry-date').attr('datetime'));
-
-                return item;
-            })
-        )
+                const date = content('.entry-info .entry-date').attr('datetime');
+                const pubDate = date ? parseDate(date) : undefined;
+                const author = content('.entry-info .vcard a').first().text() || undefined;
+                return { description, category, pubDate, author };
+            });
+            return { ...item, ...detail };
+        },
+        { concurrency: 3 }
     );
 
     return {
@@ -65,4 +72,3 @@ const fetchFeed = async (ctx, currentUrl) => {
         item: items,
     };
 };
-export default fetchFeed;

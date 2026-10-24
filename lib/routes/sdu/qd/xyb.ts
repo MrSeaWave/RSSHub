@@ -1,8 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import { parseDate } from '@/utils/parse-date';
+import { parseDateInTimezone } from '@/utils/parse-date-in-timezone';
 import { finishArticleItem } from '@/utils/wechat-mp';
 
 const host = 'https://xyb.qd.sdu.edu.cn/';
@@ -30,9 +32,9 @@ export const route: Route = {
     name: '青岛校区学科建设与研究生教育办公室',
     maintainers: ['kukeya'],
     handler,
-    description: `| 工作通知 | 
-  | -------- |
-  | gztz     | `,
+    description: `| 工作通知 |
+| -------- |
+| gztz     |`,
 };
 
 async function handler(ctx) {
@@ -46,20 +48,22 @@ async function handler(ctx) {
 
     let item = $('.list li')
         .toArray()
-        .map((e) => {
-            e = $(e);
-            const a = e.find('a');
+        .map((e): DataItem => {
+            const $e = $(e);
+            const a = $e.find('a');
             return {
                 title: a.text().slice(1).trim(),
-                link: a.attr('href').startsWith('info/') ? host + a.attr('href') : a.attr('href'),
-                pubDate: parseDate(e.find('b').text().trim(), 'YYYY-MM-DD'),
+                link: a.attr('href')!.startsWith('info/') ? host + a.attr('href') : a.attr('href'),
+                pubDate: parseDateInTimezone($e.find('b').text().trim(), 8),
             };
         });
 
-    item = await Promise.all(
-        item.map((item) =>
-            cache.tryGet(item.link, async () => {
-                const hostname = new URL(item.link).hostname;
+    item = await pMap(
+        item,
+        async (item) => ({
+            ...item,
+            ...(await cache.tryGet(`qd-xyb:article-v2:${item.link}`, async () => {
+                const hostname = new URL(item.link!).hostname;
                 if (hostname === 'mp.weixin.qq.com') {
                     return finishArticleItem(item);
                 }
@@ -68,9 +72,10 @@ async function handler(ctx) {
 
                 item.description = $('.v_news_content').html();
 
-                return item;
-            })
-        )
+                return { description: item.description };
+            })),
+        }),
+        { concurrency: 3 }
     );
 
     return {

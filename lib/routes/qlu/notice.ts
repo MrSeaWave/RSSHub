@@ -1,9 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 const host = 'https://www.qlu.edu.cn';
 
@@ -38,23 +40,36 @@ async function handler() {
     });
 
     const $ = load(response.data);
-    const list = $('ul.news_list.list2').children();
+    const list = $('ul.news_list.list2')
+        .children()
+        .toArray()
+        .flatMap((item) => {
+            const href = $(item).find('.news_title > a').attr('href');
+            if (!href) {
+                return [];
+            }
+            const link = new URL(href, `${host}/tzggsh/list1.htm`);
+            if (!['http:', 'https:'].includes(link.protocol)) {
+                return [];
+            }
+            return { element: item, link: link.href };
+        });
 
-    const items = await Promise.all(
-        list.map((i, item) => {
-            item = $(item);
-            const itemTitle = item.find('.news_title').children().text();
-            const itemDate = item.find('.news_year').text() + item.find('.news_days').text();
-            const path = item.find('.news_title').children().attr('href');
-            const itemUrl = path.startsWith('https') ? path : host + path;
-            return cache.tryGet(itemUrl, async () => {
-                let description = '';
-                if (path.startsWith('https')) {
-                    description = itemTitle;
-                } else {
+    const items = await pMap(
+        list,
+        (item) => {
+            const $item = $(item.element);
+            const itemTitle = $item.find('.news_title').children().text();
+            const itemDate = $item.find('.news_year').text() + $item.find('.news_days').text();
+            const itemUrl = item.link;
+            return cache.tryGet(itemUrl!, async () => {
+                let description: string;
+                if (new URL(itemUrl).origin === host) {
                     const result = await got(itemUrl);
                     const $ = load(result.data);
-                    description = $('.read').html().trim();
+                    description = $('.read').html() ?? '';
+                } else {
+                    description = itemTitle;
                 }
                 return {
                     title: itemTitle,
@@ -63,11 +78,12 @@ async function handler() {
                     description,
                 };
             });
-        })
+        },
+        { concurrency: 3 }
     );
 
     return {
-        title: `齐鲁工业大学 - 通知公告`,
+        title: '齐鲁工业大学 - 通知公告',
         link: `${host}/tzggsh/list1.htm`,
         description: '齐鲁工业大学 - 通知公告',
         item: items,

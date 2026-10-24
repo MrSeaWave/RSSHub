@@ -1,15 +1,16 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
+import { parseDateInTimezone } from '@/utils/parse-date-in-timezone';
 
 async function getCategoryId(categories) {
-    const baseUrl = `https://macmenubar.com/wp-json/wp/v2/categories`;
+    const baseUrl = 'https://macmenubar.com/wp-json/wp/v2/categories';
     const { data: response } = await got(baseUrl, {
         method: 'GET',
         searchParams: {
             slug: categories,
         },
     });
-    return response.reduce((queryString, item) => queryString + item.id + ',', '');
+    return response.map((item) => item.id + ',').join('');
 }
 
 export const route: Route = {
@@ -33,22 +34,20 @@ export const route: Route = {
 async function handler(ctx) {
     const baseUrl = 'https://macmenubar.com/wp-json/wp/v2/posts';
     const categories = ctx.req.param('category');
-    const searchParams = {
-        per_page: 100,
-    };
-    if (categories) {
-        searchParams.categories = await getCategoryId(categories);
-    }
+    const categoryIds = categories ? await getCategoryId(categories) : undefined;
     const response = await got(baseUrl, {
         method: 'GET',
-        searchParams,
+        searchParams: {
+            per_page: 100,
+            categories: categoryIds,
+        },
     });
     const items = response.data.map((post) => {
         const title = post.title.rendered;
         const link = post.link;
-        const pubDate = post.date_gmt;
+        const pubDate = post.date_gmt ? parseDateInTimezone(post.date_gmt, 0) : undefined;
         const description = post.content.rendered;
-        const tags = post.tag_info.map((tag) => tag.name);
+        const tags = (Array.isArray(post.tag_info) ? post.tag_info : []).map((tag) => tag.name);
         const categories = post.category_info.map((category) => category.name);
         return {
             title,

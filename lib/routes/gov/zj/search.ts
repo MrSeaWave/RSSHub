@@ -1,10 +1,12 @@
-import { Route, DataItem } from '@/types';
-import { parseDate } from '@/utils/parse-date';
-import got from '@/utils/got';
 import { load } from 'cheerio';
 import dayjs from 'dayjs';
+
+import type { DataItem, Route } from '@/types';
+import got from '@/utils/got';
+import { parseDateInTimezone } from '@/utils/parse-date-in-timezone';
+
 export const route: Route = {
-    path: '/zj/search/:websiteid?/:word/:cateid?',
+    path: '/search/:websiteid?/:word?/:cateid?/:sortType?',
     categories: ['government'],
     example: '/gov/zj/search',
     parameters: {
@@ -13,29 +15,17 @@ export const route: Route = {
         cateid: '信息分类-默认：658（全部）',
         sortType: '排序类型-默认：2（按时间）',
     },
-    radar: [
-        {
-            source: ['search.zj.gov.cn/jsearchfront/search.do'],
-            target: '/zj/search/:websiteid?/:word/:cateid?',
-        },
-    ],
-    name: '浙江省人民政府-全省政府网站统一搜索',
+    name: '全省政府网站统一搜索',
     url: 'search.zj.gov.cn/jsearchfront/search.do',
     maintainers: ['HaoyuLee'],
-    description: `
-| 行政区域         | websiteid |
-| ------------ | -- |
-| 宁波市本级     | 330201000000000  |
+    description: `| 行政区域   | websiteid       |
+| ---------- | --------------- |
+| 宁波市本级 | 330201000000000 |
 
-| 搜索关键词         | word    |
-
-| 信息分类         | cateid    |
-
-| 排序类型         | sortType    |
-| ------------ | -- |
-| 按相关度     | 1  |
-| 按时间     | 2  |
-    `,
+| 排序类型 | sortType |
+| -------- | -------- |
+| 按相关度 | 1        |
+| 按时间   | 2        |`,
     async handler(ctx) {
         const { websiteid = '330201000000000', word = '人才', cateid = 658, sortType = 2 } = ctx.req.param();
         const {
@@ -62,24 +52,25 @@ export const route: Route = {
                 const $ = load(item);
                 const title = $('.titleWrapper>a');
                 const footer = $('.sourceTime>span');
+                const date = footer.eq(1).text().replace('时间:', '').trim();
                 return {
-                    title: title.text().trim() || '',
+                    title: title.text().trim(),
                     link: title.attr('href') || '',
-                    pubDate: parseDate(footer.eq(1).text().trim().replace('时间:', '')) || '',
-                    author: footer.eq(0).text().trim().replace('来源:', '') || '',
-                    description: $('.newsDescribe>a').text() || '',
+                    pubDate: date ? parseDateInTimezone(date, 8) : undefined,
+                    author: footer.eq(0).text().trim().replace('来源:', ''),
+                    description: $('.newsDescribe>a').text(),
                 };
             }) || [];
-        const res = {};
+        const res = new Map<string, DataItem>();
         for (const current of items) {
-            if (!res[current.link]) {
-                res[current.link] = current;
+            if (!res.has(current.link)) {
+                res.set(current.link, current);
             }
         }
         return {
             title: '浙江省人民政府-全省政府网站统一搜索',
             link: 'https://search.zj.gov.cn/jsearchfront/search.do',
-            item: Object.entries(res).map(([, value]) => value) as DataItem[],
+            item: res.values().toArray(),
         };
     },
 };

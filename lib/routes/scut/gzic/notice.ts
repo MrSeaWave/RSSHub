@@ -1,9 +1,12 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import { FetchError } from 'ofetch';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import { parseDate } from '@/utils/parse-date';
 import ofetch from '@/utils/ofetch';
+import { parseDateInTimezone } from '@/utils/parse-date-in-timezone';
 
 const categoryMap = {
     xsyg: { title: '学术预告', tag: '30284' },
@@ -29,10 +32,10 @@ export const route: Route = {
     maintainers: ['gdzhht'],
     handler,
     description: `| 学术预告 | 教研通知 | 海外学习 | 事务通知 |
-  | -------- | -------- | -------- | -------- |
-  | xsyg     | jytz     | hwxx     | swtz     |
+| -------- | -------- | -------- | -------- |
+| xsyg     | jytz     | hwxx     | swtz     |
 
-:::warning
+::: warning
 由于学校网站对非大陆 IP 的访问存在限制，可能需自行部署。
 部分通知详情页可能会被删除（返回 404），或在校园网外无法访问。
 :::`,
@@ -50,34 +53,37 @@ async function handler(ctx) {
 
     const list = $('.right-nr .row .col-lg-4')
         .toArray()
-        .map((item) => {
-            item = $(item);
-            const a = item.find('.thr-box a');
-            const pubDate = item.find('.thr-box a span');
+        .map((item): DataItem => {
+            const $item = $(item);
+            const a = $item.find('.thr-box a');
+            const pubDate = $item.find('.thr-box a span');
             return {
-                title: item.find('.thr-box a p').text(),
+                title: $item.find('.thr-box a p').text(),
                 link: a.attr('href')?.startsWith('http') ? a.attr('href') : `${baseUrl}${a.attr('href')}`,
-                pubDate: parseDate(pubDate.text()),
+                pubDate: parseDateInTimezone(pubDate.text(), 8),
             };
         });
 
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
+    const items = await pMap(
+        list,
+        async (item) => ({
+            ...item,
+            ...(await cache.tryGet(`gzic-notice:article-v2:${item.link}`, async () => {
                 try {
-                    const response = await ofetch(item.link);
+                    const response = await ofetch(item.link!);
                     const $ = load(response);
                     item.description = $('div.wp_articlecontent').html();
                 } catch (error) {
-                    if (error.response && error.response.status === 404) {
+                    if (error instanceof FetchError && error.statusCode === 404) {
                         item.description = '';
                     } else {
                         throw error;
                     }
                 }
-                return item;
-            })
-        )
+                return { description: item.description };
+            })),
+        }),
+        { concurrency: 3 }
     );
 
     return {

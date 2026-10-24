@@ -1,6 +1,7 @@
-import { Route, Data } from '@/types';
-import { processItems } from './utils';
+import type { Data, Route } from '@/types';
 import parser from '@/utils/rss-parser';
+
+import { processItems } from './utils';
 
 export const route: Route = {
     path: '/nipple-video-category/:keyword',
@@ -14,6 +15,7 @@ export const route: Route = {
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
+        nsfw: true,
     },
     name: '動画カテゴリー',
     maintainers: ['SnowAgar25'],
@@ -37,12 +39,13 @@ async function handler(ctx): Promise<Data> {
     const list = feed.items.map((item) => ({
         title: item.title,
         link: item.link,
+        pubDate: item.pubDate,
     }));
 
     const items = await processItems(list);
 
     return {
-        title: `動画カテゴリー: ${feed.title?.split('-')[0]} - chikubi.jp`,
+        title: `動画カテゴリー: ${feed.title?.split('-', 1)[0]} - chikubi.jp`,
         link: `${baseUrl}${url}`,
         item: items,
     };

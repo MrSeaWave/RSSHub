@@ -1,18 +1,19 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
-import InvalidParameterError from '@/errors/types/invalid-parameter';
 
 const map = new Map([
     ['tzgg', { title: '中国科学技术大学研究生院 - 通知公告', id: '9' }],
     ['xwdt', { title: '中国科学技术大学研究生院 - 新闻动态', id: '10' }],
 ]);
-
 const host = 'https://gradschool.ustc.edu.cn';
-
 export const route: Route = {
     path: '/gs/:type?',
     categories: ['university'],
@@ -37,10 +38,9 @@ export const route: Route = {
     handler,
     url: 'gradschool.ustc.edu.cn/',
     description: `| 通知公告 | 新闻动态 |
-  | -------- | -------- |
-  | tzgg     | xwdt     |`,
+| -------- | -------- |
+| tzgg     | xwdt     |`,
 };
-
 async function handler(ctx) {
     const type = ctx.req.param('type') ?? 'tzgg';
     const info = map.get(type);
@@ -48,40 +48,54 @@ async function handler(ctx) {
         throw new InvalidParameterError('invalid type');
     }
     const id = info.id;
-
     const response = await got(`${host}/column/${id}`);
     const $ = load(response.data);
     let items = $('div.r-box > ul')
         .find('li')
         .toArray()
-        .map((item) => {
-            item = $(item);
-            const title = item.find('a').text().trim();
-            const link = item.find('a').attr('href').startsWith('/article') ? host + item.find('a').attr('href') : item.find('a').attr('href');
-            const pubDate = timezone(parseDate(item.find('time').text(), 'YYYY-MM-DD'), +8);
+        .map((item): DataItem => {
+            const $item = $(item);
+            const title = $item.find('a').text();
+            const link = new URL($item.find('a').attr('href')!, host).href;
+            const published = $item.find('time').text().trim();
+            const pubDate = published ? timezone(parseDate(published, 'YYYY-MM-DD'), 8) : undefined;
             return {
                 title,
                 pubDate,
                 link,
             };
         });
-
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
-                let desc = '';
+    items = await pMap(
+        items,
+        async (item) => {
+            const details = await cache.tryGet<Pick<DataItem, 'description' | 'pubDate' | 'author' | 'enclosure_url' | 'enclosure_type' | 'enclosure_length'>>(`ustc:gs:detail:${item.link}`, async () => {
+                const details: Pick<DataItem, 'description' | 'pubDate' | 'author' | 'enclosure_url' | 'enclosure_type' | 'enclosure_length'> = {};
                 try {
+                    if (new URL(item.link!).pathname.endsWith('.pdf')) {
+                        const response = await ofetch.raw<unknown, 'arrayBuffer'>(item.link!, { responseType: 'arrayBuffer' });
+                        if (response.headers.get('content-type')?.split(';', 1)[0] === 'application/pdf') {
+                            details.enclosure_url = item.link;
+                            details.enclosure_type = 'application/pdf';
+                            details.enclosure_length = response._data?.byteLength;
+                        }
+                        return details;
+                    }
                     const response = await got(item.link);
-                    desc = load(response.data)('article.article').html();
-                    item.description = desc;
+                    const $detail = load(response.data);
+                    details.description = $detail('article.article').html();
+                    const published = $detail('.info-bar time')
+                        .text()
+                        .match(/\d{4}-\d{2}-\d{2}/)?.[0];
+                    details.pubDate = published ? timezone(parseDate(published, 'YYYY-MM-DD'), 8) : undefined;
                 } catch {
-                    // intranet only contents
+                    // Retain the existing optional-detail fallback.
                 }
-                return item;
-            })
-        )
+                return details;
+            });
+            return { ...item, ...details, pubDate: details.pubDate ?? item.pubDate };
+        },
+        { concurrency: 3 }
     );
-
     return {
         title: info.title,
         link: `${host}/column/${id}`,

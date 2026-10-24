@@ -1,8 +1,10 @@
-import { Route } from '@/types';
 import { load } from 'cheerio';
+
+import { config } from '@/config';
+import type { Route } from '@/types';
 import logger from '@/utils/logger';
 import { parseDate } from '@/utils/parse-date';
-import puppeteer from '@/utils/puppeteer';
+import { getPlaywrightPage } from '@/utils/playwright';
 
 export const route: Route = {
     path: '/versions/:pkg/:region?',
@@ -27,33 +29,42 @@ async function handler(ctx) {
     const baseUrl = 'https://apkpure.com';
     const link = `${baseUrl}/${region}/${pkg}/versions`;
 
-    const browser = await puppeteer();
-    const page = await browser.newPage();
-    await page.setRequestInterception(true);
-    page.on('request', (request) => {
-        request.resourceType() === 'document' ? request.continue() : request.abort();
-    });
     logger.http(`Requesting ${link}`);
-    await page.goto(link, {
-        waitUntil: 'domcontentloaded',
+    const { page, destroy } = await getPlaywrightPage(link, {
+        closeTimeout: 0,
+        gotoConfig: { waitUntil: 'domcontentloaded', timeout: config.requestTimeout },
+        onBeforeLoad: async (page) => {
+            await page.route('**/*', (route) => (['document', 'script', 'xhr', 'fetch'].includes(route.request().resourceType()) ? route.continue() : route.abort()));
+        },
     });
 
-    const r = await page.evaluate(() => document.documentElement.innerHTML);
-    browser.close();
+    let r: string;
+    try {
+        await page.waitForSelector('.ver-top img', { timeout: config.requestTimeout });
+        r = await page.content();
+    } finally {
+        await destroy();
+    }
 
     const $ = load(r);
-    const img = new URL($('.ver-top img').attr('src'));
+    const img = new URL($('.ver-top img').attr('src')!);
     img.searchParams.delete('w'); // get full resolution icon
 
     const items = $('.ver li')
         .toArray()
         .map((ver) => {
-            ver = $(ver);
+            const $ver = $(ver);
             return {
-                title: ver.find('.ver-item-n').text(),
-                description: ver.html(),
-                link: `${baseUrl}${ver.find('a').attr('href')}`,
-                pubDate: parseDate(ver.find('.update-on').text().replaceAll(/年|月/g, '-').replace('日', '')),
+                title: $ver.find('.ver-item-n').text(),
+                description: $ver.html(),
+                link: `${baseUrl}${$ver.find('a').attr('href')}`,
+                pubDate: parseDate(
+                    $ver
+                        .find('.update-on')
+                        .text()
+                        .replaceAll(/年|月/g, '-')
+                        .replace('日', '')
+                ),
             };
         });
 

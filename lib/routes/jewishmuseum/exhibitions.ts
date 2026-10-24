@@ -1,4 +1,4 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import buildData from '@/utils/common-config';
 
 export const route: Route = {
@@ -25,11 +25,11 @@ async function handler() {
     return await buildData({
         link,
         url: link,
-        title: 'Jewish Museums - Exhibitions',
+        title: 'The Jewish Museum - Exhibitions',
         item: {
-            item: '#current article.exhibition, #upcoming article, #past article.exhibition',
-            title: `$('article.exhibition h3').text()`,
-            link: `$('article.exhibition > a').attr('href')`,
+            item: '#hero-exhibitions a:has(.text-card-title)',
+            title: ($) => $('.text-card-title').text(),
+            link: ($) => $('.text-card-title').closest('a').attr('href'),
         },
     });
 }

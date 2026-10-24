@@ -1,9 +1,12 @@
-import { Route } from '@/types';
+import type { Context } from 'hono';
+
+import type { Route } from '@/types';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
-    path: ['/blog'],
+    path: '/blog',
     name: 'Blog',
     url: 'cohere.com/blog',
     maintainers: ['Loongphy'],
@@ -27,11 +30,12 @@ export const route: Route = {
     ],
 };
 
-async function handler() {
+async function handler(ctx: Context) {
+    const limit = getRouteLimit(ctx);
     const { posts: data } = await ofetch('https://cohere-ai.ghost.io/ghost/api/content/posts', {
-        params: {
+        query: {
             key: '572d288a9364f8e4186af1d60a',
-            limit: 'all',
+            limit: limit !== undefined && Number.isSafeInteger(limit) ? Math.min(limit, 100) : 'all',
             include: ['authors', 'tags'],
             filter: 'tag:-hash-hidden+tag:-llmu',
         },

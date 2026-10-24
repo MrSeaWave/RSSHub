@@ -1,7 +1,9 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
 const languages = {
@@ -37,6 +39,26 @@ const languages = {
     portuguese: 'https://br.sputniknews.com',
 };
 
+const languageCodes = {
+    english: 'en',
+    spanish: 'es',
+    german: 'de',
+    french: 'fr',
+    greek: 'el',
+    italian: 'it',
+    czech: 'cs',
+    polish: 'pl',
+    serbian: 'sr',
+    moldavian: 'ro-mo',
+    belarusian: 'be',
+    turkish: 'tr',
+    vietnamese: 'vi',
+    japanese: 'ja',
+    chinese: 'zh-CN',
+    portuguese: 'pt-br',
+} satisfies Record<string, Language>;
+const isLanguageCodeKey = (key: string): key is keyof typeof languageCodes => Object.hasOwn(languageCodes, key);
+
 export const route: Route = {
     path: '/:category?/:language?',
     categories: ['traditional-media'],
@@ -55,50 +77,50 @@ export const route: Route = {
     handler,
     description: `Categories for International site:
 
-  | WORLD | COVID-19 | BUSINESS | SPORT | TECH | OPINION |
-  | ----- | -------- | -------- | ----- | ---- | ------- |
-  | world | covid-19 | business | sport | tech | opinion |
+| WORLD | COVID-19 | BUSINESS | SPORT | TECH | OPINION |
+| ----- | -------- | -------- | ----- | ---- | ------- |
+| world | covid-19 | business | sport | tech | opinion |
 
-  Categories for Chinese site:
+Categories for Chinese site:
 
-  | 新闻 | 中国  | 俄罗斯 | 国际            | 俄中关系                 | 评论    |
-  | ---- | ----- | ------ | --------------- | ------------------------ | ------- |
-  | news | china | russia | category\_guoji | russia\_china\_relations | opinion |
+| 新闻 | 中国  | 俄罗斯 | 国际            | 俄中关系                 | 评论    |
+| ---- | ----- | ------ | --------------- | ------------------------ | ------- |
+| news | china | russia | category\\_guoji | russia\\_china\\_relations | opinion |
 
-  Language
+Language
 
-  | Language    | Id          |
-  | ----------- | ----------- |
-  | English     | english     |
-  | Spanish     | spanish     |
-  | German      | german      |
-  | French      | french      |
-  | Greek       | greek       |
-  | Italian     | italian     |
-  | Czech       | czech       |
-  | Polish      | polish      |
-  | Serbian     | serbian     |
-  | Latvian     | latvian     |
-  | Lithuanian  | lithuanian  |
-  | Moldavian   | moldavian   |
-  | Belarusian  | belarusian  |
-  | Armenian    | armenian    |
-  | Abkhaz      | abkhaz      |
-  | Ssetian     | ssetian     |
-  | Georgian    | georgian    |
-  | Azerbaijani | azerbaijani |
-  | Arabic      | arabic      |
-  | Turkish     | turkish     |
-  | Persian     | persian     |
-  | Dari        | dari        |
-  | Kazakh      | kazakh      |
-  | Kyrgyz      | kyrgyz      |
-  | Uzbek       | uzbek       |
-  | Tajik       | tajik       |
-  | Vietnamese  | vietnamese  |
-  | Japanese    | japanese    |
-  | Chinese     | chinese     |
-  | Portuguese  | portuguese  |`,
+| Language    | Id          |
+| ----------- | ----------- |
+| English     | english     |
+| Spanish     | spanish     |
+| German      | german      |
+| French      | french      |
+| Greek       | greek       |
+| Italian     | italian     |
+| Czech       | czech       |
+| Polish      | polish      |
+| Serbian     | serbian     |
+| Latvian     | latvian     |
+| Lithuanian  | lithuanian  |
+| Moldavian   | moldavian   |
+| Belarusian  | belarusian  |
+| Armenian    | armenian    |
+| Abkhaz      | abkhaz      |
+| Ssetian     | ssetian     |
+| Georgian    | georgian    |
+| Azerbaijani | azerbaijani |
+| Arabic      | arabic      |
+| Turkish     | turkish     |
+| Persian     | persian     |
+| Dari        | dari        |
+| Kazakh      | kazakh      |
+| Kyrgyz      | kyrgyz      |
+| Uzbek       | uzbek       |
+| Tajik       | tajik       |
+| Vietnamese  | vietnamese  |
+| Japanese    | japanese    |
+| Chinese     | chinese     |
+| Portuguese  | portuguese  |`,
 };
 
 async function handler(ctx) {
@@ -117,18 +139,19 @@ async function handler(ctx) {
 
     let items = $('.list__title')
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
             return {
-                title: item.text(),
-                link: `${rootUrl}${item.attr('href')}`,
+                title: $item.text(),
+                link: `${rootUrl}${$item.attr('href')}`,
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
+    items = await pMap(
+        items,
+        async (item) => {
+            const details = await cache.tryGet(`sputniknews:detail:v4:${item.link}`, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,
@@ -136,25 +159,33 @@ async function handler(ctx) {
 
                 const content = load(detailResponse.data);
 
-                item.pubDate = parseDate(content('a[data-unixtime]').attr('data-unixtime') * 1000);
+                const pubDate = parseDate(Number(content('a[data-unixtime]').attr('data-unixtime')) * 1000);
 
-                item.category = content('.tag__text')
+                const category = content('.tag__text')
                     .toArray()
                     .map((tag) => content(tag).text());
 
                 content('.article__meta, .article__title, .article__info, .article__quote-bg, .article__google-news, .article__footer, .m-buy, .photoview__ext-link').remove();
-                content('div[data-type="article"]').remove();
+                content('div.article__article-info[data-type="article"]').remove();
 
-                item.description = content('.article').html();
+                content('img[data-srcset]').each((_, image) => {
+                    const srcset = content(image).attr('data-srcset');
+                    if (srcset) {
+                        content(image).attr('srcset', srcset);
+                    }
+                });
 
-                return item;
-            })
-        )
+                return { pubDate, category, description: content('.article').html() };
+            });
+            return { ...item, ...details };
+        },
+        { concurrency: 3 }
     );
 
     return {
         title: `${category} - Sputnik News`,
         link: `${rootUrl}/${category}`,
+        language: isLanguageCodeKey(language) ? languageCodes[language] : ('other' as const),
         item: items,
     };
 }

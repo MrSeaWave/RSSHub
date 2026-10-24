@@ -1,8 +1,11 @@
-import { Route, ViewType } from '@/types';
-import ofetch from '@/utils/ofetch';
-import { parseDate } from '@/utils/parse-date';
+import { decodeXML } from 'entities';
 import Parser from 'rss-parser';
 import sanitizeHtml from 'sanitize-html';
+
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
+import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
 
 const parser = new Parser();
 
@@ -11,7 +14,7 @@ export const route: Route = {
     name: 'User Activities',
     maintainers: ['hyoban'],
     example: '/github/activity/DIYgod',
-    categories: ['programming', 'popular'],
+    categories: ['programming'],
     view: ViewType.Notifications,
     parameters: {
         user: 'GitHub username',
@@ -33,10 +36,11 @@ export const route: Route = {
     ],
     handler: async (ctx) => {
         const { user } = ctx.req.param();
-        const response = (await ofetch(`https://github.com/${user}.atom`)) as Blob;
+        const response = await ofetch<Blob>(`https://github.com/${user}.atom`);
         const raw = await response.text();
         // <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/8266075?s=30&amp;v=4"/>
-        const image = raw.match(/<media:thumbnail height="30" width="30" url="(.+?)"/)?.[1];
+        const rawImage = raw.match(/<media:thumbnail height="30" width="30" url="(.+?)"/)?.[1];
+        const image = rawImage ? decodeXML(rawImage) : undefined;
         const feed = await parser.parseString(raw);
         return {
             title: `${user}'s GitHub activities`,
@@ -45,7 +49,7 @@ export const route: Route = {
             item: feed.items.map((item) => ({
                 title: item.title ?? '',
                 link: item.link,
-                description: sanitizeHtml(item.content?.replace(/href="\/(.+?)"/g, `href="https://github.com/$1"`) ?? '', { allowedTags: [...sanitizeHtml.defaults.allowedTags, 'img'] }),
+                description: sanitizeHtml(item.content ?? '', { allowedTags: [...sanitizeHtml.defaults.allowedTags, 'img'] }),
                 pubDate: item.pubDate ? parseDate(item.pubDate) : undefined,
                 author: item.author,
                 guid: item.id,

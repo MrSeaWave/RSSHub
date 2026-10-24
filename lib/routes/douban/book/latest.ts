@@ -1,4 +1,4 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
 
 const linkUrl = 'https://book.douban.com/latest';
@@ -20,9 +20,9 @@ export const route: Route = {
     },
     name: '新书速递',
     maintainers: ['fengkx', 'lyqluis'],
-    description: `| 文学         | 小说    | 历史文化 | 社会纪实  | 科学新知 | 艺术设计 | 商业经管 | 绘本漫画 |
-  | ------------ | ------- | -------- | --------- | -------- | -------- | -------- | -------- |
-  | prose_poetry | fiction | history  | biography | science  | art      | business | comics   |`,
+    description: `| 文学          | 小说    | 历史文化 | 社会纪实  | 科学新知 | 艺术设计 | 商业经管 | 绘本漫画 |
+| ------------- | ------- | -------- | --------- | -------- | -------- | -------- | -------- |
+| prose\\_poetry | fiction | history  | biography | science  | art      | business | comics   |`,
     handler,
 };
 
@@ -53,7 +53,7 @@ async function handler(ctx) {
             const rate = rating.value ? `${rating.value}分` : null_rating_reason;
             const img = `<img src="${pic.normal}">`;
             const info = card_subtitle;
-            const description = `${img}<br>${title}<br><br>${info}<br><br>${cards[0]?.content ?? ''}<br><br>${rate}`;
+            const description = `${img}<br>${info}<br><br>${cards[0]?.content ?? ''}<br><br>${rate}`;
 
             return {
                 title,

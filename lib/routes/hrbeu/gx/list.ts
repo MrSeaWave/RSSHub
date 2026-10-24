@@ -1,14 +1,24 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
+
 const rootUrl = 'http://news.hrbeu.edu.cn';
 
 export const route: Route = {
     path: '/gx/list/:column/:id?',
-    name: 'Unknown',
-    maintainers: [],
+    categories: ['university'],
+    example: '/hrbeu/gx/list/xw/yw',
+    parameters: {
+        column: '主栏，如 `新闻：xw`，由 `URL` 中获取；',
+        id: '次栏，如 `要闻：yw`，如果次栏存在，则为必选，由 `URL` 中获取。',
+    },
+    name: '工学新闻 - 列表页面',
+    maintainers: ['Derekmini', 'XYenon'],
     handler,
 };
 
@@ -17,11 +27,7 @@ async function handler(ctx) {
     const id = ctx.req.param('id') || '';
     const toUrl = id === '' ? `${rootUrl}/${column}.htm` : `${rootUrl}/${column}/${id}.htm`;
 
-    const response = await got(toUrl, {
-        headers: {
-            Referer: rootUrl,
-        },
-    });
+    const response = await got(toUrl);
 
     const $ = load(response.data);
 
@@ -30,26 +36,21 @@ async function handler(ctx) {
         .replaceAll(/[\n\r ]/g, '');
 
     const list = $('li.txt-elise')
-        .map((_, item) => {
-            let link = $(item).find('a').attr('href');
-            if (link.includes('info') && id !== '') {
-                link = new URL(link, rootUrl).href;
-            }
-            if (link.includes('info') && id === '') {
-                link = `${rootUrl}/${link}`;
-            }
+        .toArray()
+        .map((item): DataItem => {
+            const link = new URL($(item).find('a').attr('href')!, toUrl).href;
             return {
-                title: $(item).find('a').attr('title'),
-                pubDate: parseDate($(item).find('span').text()),
+                title: $(item).find('a').attr('title')!,
+                pubDate: $(item).find('span').text() ? timezone(parseDate($(item).find('span').text()), 8) : undefined,
                 link,
             };
-        })
-        .get();
+        });
 
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
-                if (item.link.includes('info')) {
+    const items = await pMap(
+        list,
+        (item) =>
+            cache.tryGet(item.link!, async () => {
+                if (item.link!.includes('info')) {
                     const detailResponse = await got(item.link);
                     const content = load(detailResponse.data);
                     item.description = content('div.v_news_content').html();
@@ -57,8 +58,8 @@ async function handler(ctx) {
                     item.description = '本文需跳转，请点击标题后阅读';
                 }
                 return item;
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
     return {

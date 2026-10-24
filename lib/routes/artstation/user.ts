@@ -1,13 +1,13 @@
-import { Route } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
-
+import { config } from '@/config';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
-import path from 'node:path';
-import { art } from '@/utils/render';
-import { config } from '@/config';
+
+import { renderDescription } from './templates/description';
+
+const resolveImageUrl = (url: string) => url.replace(/\/\d{14}\/small_square\//, '/large/');
 
 export const route: Route = {
     path: '/:handle',
@@ -27,7 +27,7 @@ export const route: Route = {
             source: ['www.artstation.com/:handle'],
         },
     ],
-    name: 'Artist Profolio',
+    name: 'Artist Portfolio',
     maintainers: ['TonyRL'],
     handler,
 };
@@ -43,10 +43,11 @@ async function handler(ctx) {
     };
 
     const csrfToken = await cache.tryGet('artstation:csrfToken', async () => {
-        const tokenResponse = await got.post('https://www.artstation.com/api/v2/csrf_protection/token.json', {
+        const tokenResponse = await ofetch.raw('https://www.artstation.com/api/v2/csrf_protection/token.json', {
+            method: 'POST',
             headers,
         });
-        return tokenResponse.headers['set-cookie'][0].split(';')[0].split('=')[1];
+        return tokenResponse.headers.getSetCookie()[0].split(';', 1)[0].split('=', 2)[1];
     });
 
     const { data: userData } = await got(`https://www.artstation.com/users/${handle}/quick.json`, {
@@ -65,12 +66,9 @@ async function handler(ctx) {
             page: 1,
         },
     });
-
-    const resolveImageUrl = (url) => url.replace(/\/\d{14}\/small_square\//, '/large/');
-
     const list = projects.data.map((item) => ({
         title: item.title,
-        description: art(path.join(__dirname, 'templates/description.art'), {
+        description: renderDescription({
             description: item.description,
             image: {
                 src: resolveImageUrl(item.cover.small_square_url),
@@ -97,16 +95,11 @@ async function handler(ctx) {
                         },
                     });
 
-                    item.description = art(path.join(__dirname, 'templates/description.art'), {
+                    item.description = renderDescription({
                         description: data.description,
+                        projectUrl: item.link,
                         assets: data.assets,
                     });
-
-                    for (const a of data.assets) {
-                        if (a.asset_type !== 'video' && a.asset_type !== 'image' && a.asset_type !== 'video_clip' && a.asset_type !== 'cover') {
-                            throw new Error(`Unhandle asset type: ${a.asset_type}`); // model3d, marmoset, pano
-                        }
-                    }
                 }
 
                 return item;
