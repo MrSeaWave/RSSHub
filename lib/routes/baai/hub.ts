@@ -1,13 +1,14 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import ofetch from '@/utils/ofetch';
 import { load } from 'cheerio';
 
-import { baseUrl, apiHost, getTagsData, parseEventDetail, parseItem } from './utils';
 import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
+import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
+
+import { apiHost, baseUrl, getTagsData, parseEventDetail, parseItem } from './utils';
 
 export const route: Route = {
-    path: ['/hub/:tagId?/:sort?/:range?'],
+    path: '/hub/:tagId?/:sort?/:range?',
     categories: ['programming'],
     example: '/baai/hub',
     parameters: {
@@ -28,14 +29,8 @@ export const route: Route = {
 | 3    | 7    | 30   |`,
     radar: [
         {
-            source: ['baai.ac.cn/'],
-            target: (_params, url) => {
-                const searchParams = new URL(url).searchParams;
-                const tagId = searchParams.get('tag_id');
-                const sort = searchParams.get('sort');
-                const range = searchParams.get('time_range');
-                return `/baai/hub${tagId ? `/${tagId}` : ''}${sort ? `/${sort}` : ''}${range ? `/${range}` : ''}`;
-            },
+            source: ['hub.baai.ac.cn/'],
+            target: '/hub',
         },
     ],
     name: '智源社区',
@@ -48,9 +43,9 @@ async function handler(ctx) {
 
     let title, description, brief, iconUrl;
     if (tagId) {
-        const tagsData = await getTagsData();
+        const tagsData: Array<{ id: number; title: string; description: string; brief: string; iconUrl: string }> = await getTagsData();
 
-        const tag = (tagsData as Record<string, string>[]).find((tag) => tag.id === tagId);
+        const tag = tagsData.find((tag) => String(tag.id) === tagId);
         if (tag) {
             title = tag.title;
             description = tag.description;
@@ -70,6 +65,10 @@ async function handler(ctx) {
             time_range: range,
         },
     });
+
+    if (!Array.isArray(response.data)) {
+        throw new TypeError(`BAAI Hub did not return an article list${tagId ? ` for tag ${tagId}` : ''}: ${response.message || 'check the source website and route parameters'}`);
+    }
 
     const list = response.data.map((item) => parseItem(item));
 

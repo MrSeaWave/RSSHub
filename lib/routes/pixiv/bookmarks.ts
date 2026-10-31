@@ -1,12 +1,12 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import { getToken } from './token';
+import { config } from '@/config';
+import ConfigNotFoundError from '@/errors/types/config-not-found';
+import type { Route } from '@/types';
+import { parseDate } from '@/utils/parse-date';
+
 import getBookmarks from './api/get-bookmarks';
 import getUserDetail from './api/get-user-detail';
-import { config } from '@/config';
+import { getToken } from './token';
 import pixivUtils from './utils';
-import { parseDate } from '@/utils/parse-date';
-import ConfigNotFoundError from '@/errors/types/config-not-found';
 
 export const route: Route = {
     path: '/user/bookmarks/:id',
@@ -14,16 +14,22 @@ export const route: Route = {
     example: '/pixiv/user/bookmarks/15288095',
     parameters: { id: "user id, available in user's homepage URL" },
     features: {
-        requireConfig: false,
+        requireConfig: [
+            {
+                name: 'PIXIV_REFRESHTOKEN',
+                description: 'Pixiv refresh token required for accessing the app API.',
+            },
+        ],
         requirePuppeteer: false,
         antiCrawler: false,
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
+        nsfw: true,
     },
     radar: [
         {
-            source: ['www.pixiv.net/users/:id/bookmarks/artworks'],
+            source: ['www.pixiv.net/users/:id/bookmarks/artworks', 'www.pixiv.net/en/users/:id/bookmarks/artworks'],
         },
     ],
     name: 'User Bookmark',
@@ -38,7 +44,7 @@ async function handler(ctx) {
 
     const id = ctx.req.param('id');
 
-    const token = await getToken(cache.tryGet);
+    const token = await getToken();
     if (!token) {
         throw new ConfigNotFoundError('pixiv not login');
     }

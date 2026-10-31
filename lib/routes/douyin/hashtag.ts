@@ -1,12 +1,12 @@
-import { Route } from '@/types';
+import { config } from '@/config';
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import { parseDate } from '@/utils/parse-date';
-import { art } from '@/utils/render';
-import { config } from '@/config';
+import { getPlaywrightPage } from '@/utils/playwright';
 import { fallback, queryToBoolean } from '@/utils/readable-social';
-import { templates, resolveUrl, proxyVideo, getOriginAvatar } from './utils';
-import puppeteer from '@/utils/puppeteer';
-import InvalidParameterError from '@/errors/types/invalid-parameter';
+
+import { getApiResponse, getOriginAvatar, proxyVideo, resolveUrl, templates } from './utils';
 
 export const route: Route = {
     path: '/hashtag/:cid/:routeParams?',
@@ -34,7 +34,7 @@ export const route: Route = {
 
 async function handler(ctx) {
     const cid = ctx.req.param('cid');
-    if (isNaN(cid)) {
+    if (!/^[1-9]\d*$/.test(cid)) {
         throw new InvalidParameterError('Invalid tag ID. Tag ID should be a number.');
     }
     const routeParams = Object.fromEntries(new URLSearchParams(ctx.req.param('routeParams')));
@@ -47,30 +47,23 @@ async function handler(ctx) {
     const tagData = await cache.tryGet(
         `douyin:hashtag:${cid}`,
         async () => {
-            const browser = await puppeteer();
-            const page = await browser.newPage();
-            await page.setRequestInterception(true);
-            let awemeList = '';
-            page.on('request', (request) => {
-                request.resourceType() === 'document' || request.resourceType() === 'script' || request.resourceType() === 'xhr' ? request.continue() : request.abort();
-            });
-            page.on('response', async (response) => {
-                const request = response.request();
-                if (request.url().includes('/v1/web/challenge/aweme')) {
-                    awemeList = await response.json();
-                }
-            });
-            await page.goto(tagUrl, {
-                waitUntil: 'networkidle2',
-            });
-            await page.waitForSelector('#RENDER_DATA');
-            const html = await page.evaluate(() => document.querySelector('#RENDER_DATA').textContent);
-            await browser.close();
+            const { page, destroy } = await getPlaywrightPage(tagUrl, { noGoto: true, closeTimeout: 0 });
+            try {
+                await page.route('**/*', (route) => {
+                    const request = route.request();
+                    request.resourceType() === 'document' || request.resourceType() === 'script' || request.resourceType() === 'xhr' ? route.continue() : route.abort();
+                });
+                const awemeList = await getApiResponse(page, tagUrl, '/v1/web/challenge/aweme');
+                await page.waitForSelector('#RENDER_DATA', { timeout: config.requestTimeout });
+                const html = await page.evaluate(() => document.querySelector('#RENDER_DATA')!.textContent);
 
-            const renderData = JSON.parse(decodeURIComponent(html));
-            const dataKey = Object.keys(renderData).find((key) => renderData[key].topicDetail);
-            renderData[dataKey].defaultData = awemeList.aweme_list;
-            return renderData[dataKey];
+                const renderData = JSON.parse(decodeURIComponent(html));
+                const dataKey = Object.keys(renderData).find((key) => renderData[key].topicDetail)!;
+                renderData[dataKey].defaultData = awemeList.aweme_list;
+                return renderData[dataKey];
+            } finally {
+                await destroy();
+            }
         },
         config.cache.routeExpire,
         false
@@ -88,19 +81,19 @@ async function handler(ctx) {
             videoList = videoList.map((item) => proxyVideo(item, relay));
         }
         let duration = post.video && post.video.duration;
-        duration = duration && duration / 1000;
+        duration &&= duration / 1000;
         let img;
         // if (!embed) {
         //     img = post.video && post.video.dynamic_cover && post.video.dynamic_cover.url_list[post.video.dynamic_cover.url_list.length - 1]; // dynamic cover (webp)
         // }
-        img = img || (post.video && post.video.origin_cover && post.video.origin_cover.url_list.at(-1));
-        img = img && resolveUrl(img);
+        img ||= post.video && post.video.origin_cover && post.video.origin_cover.url_list.at(-1);
+        img &&= resolveUrl(img);
 
         // render description
         const desc = post.desc && post.desc.replaceAll('\n', '<br>');
-        let media = art(embed && videoList ? templates.embed : templates.cover, { img, videoList, duration });
-        media = embed && videoList && iframe ? art(templates.iframe, { content: media }) : media; // warp in iframe
-        const description = art(templates.desc, { desc, media });
+        let media = (embed && videoList ? templates.embed : templates.cover)({ img, videoList, duration });
+        media = embed && videoList && iframe ? templates.iframe({ content: media }) : media; // warp in iframe
+        const description = templates.desc({ desc, media });
 
         return {
             title: post.desc,

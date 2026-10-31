@@ -1,8 +1,10 @@
-import { Route } from '@/types';
 import { load } from 'cheerio';
-import cache from './cache';
+
+import type { Route } from '@/types';
 import got from '@/utils/got';
-import zlib from 'zlib';
+import { parseDate } from '@/utils/parse-date';
+
+import cache from './cache';
 
 const processFloatTime = (time) => {
     const totalSeconds = Number.parseInt(time);
@@ -45,33 +47,29 @@ async function handler(ctx) {
 
     const link = `https://www.bilibili.com/video/${bvid || `av${aid}`}`;
     const danmakuResponse = await got.get(`https://comment.bilibili.com/${cid}.xml`, {
-        decompress: false,
-        responseType: 'buffer',
         headers: {
             Referer: link,
         },
     });
 
-    let danmakuText = danmakuResponse.body;
+    const danmakuText = danmakuResponse.body;
 
-    danmakuText = await ((danmakuText[0] & 0x0f) === 0x08 ? zlib.inflateSync(danmakuText) : zlib.inflateRawSync(danmakuText));
-
-    let danmakuList = [];
+    let danmakuList: any[] = [];
     const $ = load(danmakuText, { xmlMode: true });
     $('d').each((index, item) => {
         danmakuList.push({ p: $(item).attr('p'), text: $(item).text() });
     });
 
-    danmakuList = danmakuList.reverse().slice(0, limit);
+    danmakuList = danmakuList.toReversed().slice(0, limit);
 
     return {
         title: `${videoName} 的 弹幕动态`,
         link,
         description: `${videoName} 的 弹幕动态`,
         item: danmakuList.map((item) => ({
-            title: `[${processFloatTime(item.p.split(',')[0])}] ${item.text}`,
-            pubDate: new Date(item.p.split(',')[4] * 1000).toUTCString(),
-            guid: `${cid}-${item.p.split(',')[4]}-${item.p.split(',')[7]}`,
+            title: `[${processFloatTime(item.p.split(',', 1)[0])}] ${item.text}`,
+            pubDate: parseDate(item.p.split(',', 5)[4], 'X'),
+            guid: `${cid}-${item.p.split(',', 5)[4]}-${item.p.split(',', 8)[7]}`,
             link,
         })),
     };

@@ -1,4 +1,4 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
 
 export const route: Route = {
@@ -20,20 +20,24 @@ export const route: Route = {
         },
     ],
     name: 'New Releases',
-    maintainers: ['EthanWng97'],
+    maintainers: ['IvanWng97'],
     handler,
     url: 'bellroy.com/collection/new-releases',
 };
 
 async function handler() {
     const host = 'https://bellroy.com';
-    const url = 'https://production.products.boobook-services.com/products';
+    const [settings, context] = await Promise.all([got(`${host}/api/v1/customer/settings`), got(`${host}/api/v1/customer/context`)]);
+    const productsHost = settings.data.applications['product-detail'].sources.products.host;
+    const commerce = context.data.commerce_information;
+    const url = `${productsHost}/v2/products`;
     const response = await got({
         method: 'get',
         url,
         searchParams: {
-            currency_identifier: '1abe985632a1392e6a94b885fe193d5943b7c213',
-            price_group: 'bellroy.com',
+            currency_identifier: commerce.currency_identifier,
+            channel: 'bellroy.com',
+            price_role_identifier: commerce.price_list_identifier,
             'filter[dimensions][web_new_release]': 'new_style',
         },
     });

@@ -1,15 +1,18 @@
-import { Route } from '@/types';
-import ofetch from '@/utils/ofetch';
 import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Language, Route } from '@/types';
 import cache from '@/utils/cache';
-import { rootUrl, ProcessFeed } from './utils';
+import ofetch from '@/utils/ofetch';
+
+import { ProcessFeed, rootUrl } from './utils';
 
 export const route: Route = {
     path: '/contributors/:author',
     categories: ['reading'],
     example: '/p-articles/contributors/黃衍仁',
     parameters: { author: '虛詞作者, 可在作者页面 URL 找到' },
-    name: '虛詞作者',
+    name: '作者',
     maintainers: ['Insomnia1437'],
     handler,
     radar: [
@@ -26,28 +29,30 @@ async function handler(ctx) {
     const $ = load(response);
 
     const list = $('div.contect_box_05in > a')
-        .map(function () {
+        .toArray()
+        .map((element) => {
             const info = {
-                title: $(this).find('h3').text().trim(),
-                link: new URL($(this).attr('href'), rootUrl).href,
+                title: $(element).find('h3').text(),
+                link: new URL($(element).attr('href')!, rootUrl).href,
             };
             return info;
-        })
-        .get();
+        });
 
-    const items = await Promise.all(
-        list.map((info) =>
-            cache.tryGet(info.link, async () => {
+    const items = await pMap(
+        list,
+        async (info) => {
+            const details = await cache.tryGet(`p-articles:article:body:${info.link}`, async () => {
                 const response = await ofetch(info.link);
-                // const $ = load(response);
-                return ProcessFeed(info, response);
-            })
-        )
+                return ProcessFeed({}, response);
+            });
+            return { ...info, ...details };
+        },
+        { concurrency: 3 }
     );
     return {
         title: '虚词 p-articles',
         link: authorUrl,
         item: items,
-        language: 'zh-cn',
+        language: 'zh-TW' as const satisfies Language,
     };
 }

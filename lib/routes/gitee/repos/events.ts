@@ -1,9 +1,12 @@
-import { Route } from '@/types';
+import MarkdownIt from 'markdown-it';
+
+import { config } from '@/config';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import { config } from '@/config';
-import MarkdownIt from 'markdown-it';
+import { getRouteLimit } from '@/utils/route-limit';
+
 const md = MarkdownIt({
     html: true,
 });
@@ -35,14 +38,15 @@ async function handler(ctx) {
     const { owner, repo } = ctx.req.param();
 
     const apiUrl = `https://gitee.com/api/v5/repos/${owner}/${repo}/events`;
+    const limit = getRouteLimit(ctx, 100);
     const response = await cache.tryGet(
-        apiUrl,
+        `${apiUrl}:${limit}`,
         async () =>
             (
                 await got(apiUrl, {
                     searchParams: {
                         access_token: config.gitee.access_token ?? undefined,
-                        limit: ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 100,
+                        limit,
                     },
                 })
             ).data
@@ -53,6 +57,7 @@ async function handler(ctx) {
         author: item.actor.login,
         pubDate: parseDate(item.created_at),
         guid: item.id,
+        link: `https://gitee.com/${owner}/${repo}`,
         type: item.type,
         payload: item.payload,
     }));
@@ -61,19 +66,21 @@ async function handler(ctx) {
         switch (item.type) {
             case 'IssueEvent':
                 item.title = item.payload.title;
-                item.description = md.render(item.payload.body);
+                item.description = typeof item.payload.body === 'string' ? md.render(item.payload.body) : undefined;
                 item.link = item.payload.html_url;
                 break;
             case 'ForkEvent':
                 item.title = `${item.author || item.actor.login} forked ${owner}/${repo}`;
-                item.link = item.payload.html_url;
+                if (item.payload.full_name) {
+                    item.link = `https://gitee.com/${item.payload.full_name}`;
+                }
                 break;
             case 'StarEvent':
                 item.title = `${item.author || item.actor.login} ${item.payload.action} ${owner}/${repo}`;
                 break;
             case 'IssueCommentEvent':
                 item.title = item.payload.issue.title;
-                item.description = md.render(item.payload.comment.body);
+                item.description = typeof item.payload.comment.body === 'string' ? md.render(item.payload.comment.body) : undefined;
                 item.link = item.payload.comment.html_url;
                 break;
             default:

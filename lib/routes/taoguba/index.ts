@@ -1,93 +1,66 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
-import { parseDate } from '@/utils/parse-date';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import { getPage, renderPostDetail, rootUrl } from './util';
 
 export const route: Route = {
-    path: ['/index', '/:category?'],
-    name: 'Unknown',
+    path: '/:category?',
+    categories: ['finance'],
+    example: '/taoguba',
+    parameters: { category: '分类，见下表，默认为社区总版' },
+    features: {
+        requireConfig: [
+            {
+                name: 'TAOGUBA_COOKIE',
+                optional: true,
+                description: 'Your own www.tgb.cn Cookie for articles that require login. Anonymous excerpts remain available without it.',
+            },
+        ],
+    },
+    name: '淘股论坛',
     maintainers: ['nczitzk'],
     handler,
     description: `| 淘股论坛 | 社区总版 | 精华加油 | 网友点赞 |
-  | -------- | -------- | -------- | -------- |
-  | bbs      | zongban  | jinghua  | dianzan  |`,
+| -------- | -------- | -------- | -------- |
+| bbs      | zongban  | jinghua  | dianzan  |`,
 };
 
 async function handler(ctx) {
     const category = ctx.req.param('category') ?? 'zongban';
 
-    const rootUrl = 'https://www.taoguba.com.cn';
     const currentUrl = `${rootUrl}/${category}/`;
 
-    const response = await got({
-        method: 'get',
-        url: currentUrl,
-    });
+    const response = await getPage(currentUrl);
 
     const $ = load(response.data);
 
-    let items = $('.items-comment-list')
-        .slice(0, ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 70)
+    let items = $('.Nbbs-tiezi-lists')
+        .slice(0, getRouteLimit(ctx, 70))
         .toArray()
         .map((item) => {
-            item = $(item);
+            const $item = $(item);
 
-            const a = item.find('.items-list-tittle a');
-            a.find('b').remove();
+            const a = $item.find('.middle-list-tittle a');
 
+            const href = a.attr('href');
+            if (!href) {
+                return;
+            }
             return {
-                title: a.text(),
-                link: `${rootUrl}/${a.attr('href')}`,
-                author: item.find('.items-list-user a').text().trim(),
+                title: a.attr('title') || a.text(),
+                link: new URL(href, rootUrl).href,
+                author: $item.find('.middle-list-user a').text().trim(),
             };
-        });
+        })
+        .filter((item) => item !== undefined);
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
-                const detailResponse = await got({
-                    method: 'get',
-                    url: item.link,
-                });
-                if (detailResponse.url?.startsWith('https://www.taoguba.com.cn/topic/transfer')) {
-                    item.description = '登录后查看完整文章';
-                    return item;
-                }
-
-                const content = load(detailResponse.data);
-
-                content('#videoImg').remove();
-                content('img').each((_, img) => {
-                    if (img.attribs.src2) {
-                        img.attribs.src = img.attribs.src2;
-                        delete img.attribs.src2;
-                        delete img.attribs['data-original'];
-                    }
-                });
-
-                item.description = content('#first').html();
-                item.pubDate = timezone(
-                    parseDate(
-                        content('.article-data span')
-                            .eq(1)
-                            .text()
-                            .match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/)
-                    ),
-                    +8
-                );
-                item.category = content('.article-topic-list span')
-                    .toArray()
-                    .map((item) => $(item).text().trim());
-
-                return item;
-            })
-        )
-    );
+    items = await pMap(items, renderPostDetail, { concurrency: 3 });
 
     return {
-        title: $('head title').text().trim().split('_')[0],
+        title: $('head title').text().trim().split('_', 1)[0],
         link: currentUrl,
         item: items,
     };

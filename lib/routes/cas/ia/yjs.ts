@@ -1,6 +1,9 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/ia/yjs',
@@ -30,21 +33,20 @@ async function handler() {
     const link = 'http://www.ia.cas.cn/yjsjy/zs/sszs/';
     const response = await got(link);
     const $ = load(response.data);
-    const list = $('.col-md-9 li');
+    const list = $('#content li');
 
     return {
         title: '中科院自动化所',
         link,
         description: '中科院自动化所通知公告',
-        item:
-            list &&
-            list.toArray().map((item) => {
-                item = $(item);
-                return {
-                    title: item.find('li a').text(),
-                    description: item.find('li a').text(),
-                    link: item.find('li a').attr('href'),
-                };
-            }),
+        item: list.toArray().map((item) => {
+            const $item = $(item);
+            const a = $item.find('a');
+            return {
+                title: a.text(),
+                link: new URL(a.attr('href')!, link).href,
+                pubDate: timezone(parseDate($item.find('.data-s').text(), 'YYYY-MM-DD'), 8),
+            };
+        }),
     };
 }

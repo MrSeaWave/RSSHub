@@ -1,21 +1,20 @@
-import got from '@/utils/got';
 import { load } from 'cheerio';
+import type { AnyNode } from 'domhandler';
+import pMap from 'p-map';
+
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
 
 // 专门定义一个function用于加载文章内容
 async function loadContent(link) {
     // 异步请求文章
-    const response = await got.get(link, {
-        https: {
-            rejectUnauthorized: false,
-        },
-    });
+    const response = await got(link);
     // 加载文章内容
     const $ = load(response.data);
     const dateStr = $('span+ span').text();
     // 解析日期
-    const pubDate = timezone(parseDate(dateStr, 'YYYY-MM-DD', 'zh-cn'), +8);
+    const pubDate = timezone(parseDate(dateStr, 'YYYY-MM-DD', 'zh-cn'), 8);
     // 提取内容
     const description = $('form > div').html();
 
@@ -23,18 +22,23 @@ async function loadContent(link) {
     return { description, pubDate };
 }
 
-const ProcessFeed = (list, caches) => {
+const ProcessFeed = async (list: AnyNode[], caches) => {
     const host = 'http://jwc.njnu.edu.cn/';
 
     // 使用 Promise.all() 进行 async 并发
-    return Promise.all(
+    const items = await pMap(
+        list,
         // 遍历每一篇文章
-        list.map(async (item) => {
+        async (item) => {
             const $ = load(item);
 
             const $title = $('a');
             // 还原相对链接为绝对链接
-            const itemUrl = new URL($title.attr('href'), host);
+            const href = $title.attr('href');
+            if (!href) {
+                return;
+            }
+            const itemUrl = new URL(href, host).href;
 
             // 列表上提取到的信息
             const single = {
@@ -50,8 +54,10 @@ const ProcessFeed = (list, caches) => {
 
             // 合并解析后的结果集作为该篇文章最终的输出结果
             return { ...single, ...other };
-        })
+        },
+        { concurrency: 6 }
     );
+    return items.filter((item) => item !== undefined);
 };
 
 export { ProcessFeed };

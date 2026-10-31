@@ -1,6 +1,9 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { Route } from '@/types';
 import got from '@/utils/got';
-import * as cheerio from 'cheerio';
+import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/newest',
@@ -22,21 +25,25 @@ async function handler() {
         method: 'get',
         url,
     });
-    const $ = cheerio.load(response.data);
-    const resultItem = $('.media')
-        .map((index, elem) => {
-            elem = $(elem);
-            const $link = elem.find('dt a');
+    const $ = load(response.data);
+    const resultItem = $('article.br-news-item')
+        .toArray()
+        .map((elem) => {
+            const $elem = $(elem);
+            const $link = $elem.find('.br-card-title a');
+            const date = $elem
+                .find('.br-meta span')
+                .toArray()
+                .map((span) => $(span).text())
+                .find((text) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(text));
             return {
                 title: $link.text(),
-                description: elem.find('dd').eq(0).text(),
-                link: $link.attr('href'),
-                author: elem.find('.small a').eq(0).text(),
-                pubDate: elem.find('dd').eq(1).text().split('\n')[2],
+                description: $elem.find('.br-summary').html(),
+                link: new URL($link.attr('href')!, url).href,
+                author: $elem.find('.br-meta a').text(),
+                pubDate: date ? timezone(parseDate(date, 'YYYY-MM-DD HH:mm'), 8) : undefined,
             };
-        })
-        .get();
-
+        });
     return {
         title: '技术头条',
         link: url,

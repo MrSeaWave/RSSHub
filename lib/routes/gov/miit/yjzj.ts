@@ -1,13 +1,15 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 const rootUrl = 'https://www.miit.gov.cn';
 
 export const route: Route = {
-    path: '/miit/yjzj',
+    path: '/yjzj',
     categories: ['government'],
     example: '/gov/miit/yjzj',
     parameters: {},
@@ -33,34 +35,33 @@ export const route: Route = {
 async function handler() {
     const url = `${rootUrl}/gzcy/yjzj/index.html`;
 
-    const cookieResponse = await got(url);
-    const cookie = cookieResponse.headers['set-cookie'][0].split(';')[0];
-    const indexContent = load(cookieResponse.data);
+    const indexResponse = await got(url);
+    const indexContent = load(indexResponse.data);
     const dataRequestUrl = indexContent('div.clist_con > script:nth-child(2)')
-        .map((_, item) => ({
+        .toArray()
+        .map((item) => ({
             url: `${rootUrl}${indexContent(item).attr('url')}`,
-            queryData: JSON.parse(indexContent(item).attr('querydata').replaceAll('"', '|').replaceAll("'", '"').replaceAll('|', '"')),
-        }))
-        .get()[0];
+            queryData: JSON.parse(indexContent(item).attr('querydata')!.replaceAll('"', '|').replaceAll(/['|]/g, '"')),
+        }))[0];
 
-    const dataUrl = `${dataRequestUrl.url}?${Object.keys(dataRequestUrl.queryData)
-        .map((key) => `${key}=${dataRequestUrl.queryData[key]}`)
+    const dataUrl = `${dataRequestUrl.url}?${Object.entries(dataRequestUrl.queryData)
+        .map(([key, value]) => `${key}=${value}`)
         .join('&')}`;
     const response = await got({
         method: 'get',
         url: dataUrl,
-        headers: {
-            Cookie: cookie,
-        },
     });
     const $ = load(response.data.data.html);
     const list = $('ul > li')
-        .map((_, item) => ({
-            title: $(item).find('a').text(),
-            link: new URL($(item).find('a').attr('href'), rootUrl).href,
-            pubDate: parseDate($(item).find('span').text(), 'YYYY-MM-DD'),
-        }))
-        .get();
+        .toArray()
+        .map((item): DataItem & { link: string } => {
+            const pubDate = $(item).find('span').text();
+            return {
+                title: $(item).find('a').text(),
+                link: new URL($(item).find('a').attr('href')!, rootUrl).href,
+                pubDate: pubDate ? timezone(parseDate(pubDate, 'YYYY-MM-DD'), 8) : undefined,
+            };
+        });
 
     const items = await Promise.all(
         list.map((item) =>
@@ -68,9 +69,11 @@ async function handler() {
                 const detailResponse = await got(item.link);
                 const content = load(detailResponse.data);
 
-                item.description = content('#con_con')
-                    .html()
-                    .replaceAll(/(<iframe.*?src=")(.*?)(".*?>)/g, '$1' + rootUrl + '$2' + '$3');
+                item.description = content('#con_con').html();
+                const pubDate = content('meta[name="PubDate"]').attr('content');
+                if (pubDate) {
+                    item.pubDate = timezone(parseDate(pubDate), 8);
+                }
 
                 return item;
             })
@@ -78,7 +81,7 @@ async function handler() {
     );
 
     return {
-        title: `工业和信息化部 - 意见征集`,
+        title: '工业和信息化部 - 意见征集',
         link: url,
         item: items,
     };

@@ -1,10 +1,15 @@
-import { Route, ViewType } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import { config } from '@/config';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
+import got from '@/utils/got';
+import { parseRelativeDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
     path: '/xna',
-    categories: ['bbs', 'blog'],
+    categories: ['bbs'],
     view: ViewType.Articles,
     example: '/v2ex/xna',
     parameters: {},
@@ -28,28 +33,33 @@ async function handler(ctx) {
     const response = await got({
         method: 'get',
         url: pageUrl,
+        headers: {
+            'user-agent': config.ua,
+        },
     });
 
     const $ = load(response.data);
+    const limit = getRouteLimit(ctx, 50);
     const items = $('div.xna-entry-main-container')
         .toArray()
-        .slice(0, ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 50)
+        .slice(0, limit)
         .map((dom) => {
             const link = $(dom).find('.xna-entry-title > a');
             const author = $(dom).find('.xna-source-author > a').text();
+            const dateText = $(dom).find('.xna-entry-date').text().trim();
 
             return {
                 title: $(link).text(),
                 link: $(link).attr('href'),
-                description: $(link).text(),
                 author,
+                pubDate: dateText ? parseRelativeDate(dateText) : undefined,
             };
         });
 
     return {
-        title: `V2EX-xna`,
+        title: 'V2EX-xna',
         link: pageUrl,
-        description: `V2EX-xna`,
+        description: 'V2EX-xna',
         item: items,
     };
 }

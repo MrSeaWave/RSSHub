@@ -1,6 +1,7 @@
-import { Route, Data } from '@/types';
-import { getPosts } from './utils';
+import type { Data, Route } from '@/types';
 import got from '@/utils/got';
+
+import { getPosts } from './utils';
 
 export const route: Route = {
     path: '/search/:keyword',
@@ -14,6 +15,7 @@ export const route: Route = {
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
+        nsfw: true,
     },
     name: 'Search',
     maintainers: ['SnowAgar25'],
@@ -23,9 +25,9 @@ export const route: Route = {
 async function handler(ctx): Promise<Data> {
     const { keyword } = ctx.req.param();
     const baseUrl = 'https://chikubi.jp';
-    const searchUrl = `${baseUrl}/wp-json/wp/v2/search?search=${keyword}`;
+    const searchUrl = `${baseUrl}/wp-json/wp/v2/search`;
 
-    const response = await got.get(searchUrl);
+    const response = await got.get(searchUrl, { searchParams: { search: keyword } });
     const searchResults = response.data;
 
     const postIds = searchResults.map((item) => item.id.toString());

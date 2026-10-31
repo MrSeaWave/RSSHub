@@ -1,8 +1,9 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
 
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
 const decoder = new TextDecoder('gbk');
@@ -30,27 +31,24 @@ async function handler() {
 
     const list = $('.listNews li')
         .toArray()
-        .map((item) => {
+        .map((item): DataItem & { link: string } => {
             const element = $(item);
             const a = element.find('a');
 
             const link = a.attr('href')?.replace('http://', 'https://') || '';
-            const title = a.text() || '';
-
-            const timeSpan = element.find('span');
-            const dateText = timeSpan.text().slice(1, timeSpan.text().length - 1);
-            const pubDate = parseDate(dateText, 'MM/DD HH:mm');
+            const title = a.text();
 
             return {
                 title,
                 link,
-                pubDate,
             };
         });
 
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
+    const items = await pMap(
+        list,
+        async (item: (typeof list)[number]) => ({
+            ...item,
+            ...(await cache.tryGet(item.link, async () => {
                 const response = await got({
                     method: 'get',
                     url: item.link,
@@ -59,11 +57,14 @@ async function handler() {
 
                 const $ = load(decoder.decode(response.data));
 
-                item.description = $('.art_contextBox').html() || '';
-
-                return item;
-            })
-        )
+                const published = $('meta[property="bytedance:published_time"], meta[name="bytedance:published_time"]').attr('content');
+                return {
+                    description: $('.art_contextBox').html(),
+                    pubDate: published ? parseDate(published) : undefined,
+                };
+            })),
+        }),
+        { concurrency: 3 }
     );
 
     return {

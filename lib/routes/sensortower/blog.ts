@@ -1,13 +1,12 @@
-import { Route } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
+import { load } from 'cheerio';
+import pMap from 'p-map';
 
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
-import { art } from '@/utils/render';
-import path from 'node:path';
+
+import { renderDescription } from './templates/description';
 
 export const route: Route = {
     path: '/blog/:language?',
@@ -24,8 +23,20 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['sensortower.com/blog', 'sensortower.com/zh-CN/blog', 'sensortower.com/ja/blog', 'sensortower.com/ko/blog', 'sensortower.com/'],
+            source: ['sensortower.com/blog', 'sensortower.com/'],
             target: '/blog',
+        },
+        {
+            source: ['sensortower.com/zh-CN/blog'],
+            target: '/blog/zh-CN',
+        },
+        {
+            source: ['sensortower.com/ja/blog'],
+            target: '/blog/ja',
+        },
+        {
+            source: ['sensortower.com/ko/blog'],
+            target: '/blog/ko',
         },
     ],
     name: 'Blog',
@@ -33,8 +44,8 @@ export const route: Route = {
     handler,
     url: 'sensortower.com/blog',
     description: `| English | Chinese | Japanese | Korean |
-  | ------- | ------- | -------- | ------ |
-  |         | zh-CN   | ja       | ko     |`,
+| ------- | ------- | -------- | ------ |
+|         | zh-CN   | ja       | ko     |`,
 };
 
 async function handler(ctx) {
@@ -48,14 +59,14 @@ async function handler(ctx) {
         url: currentUrl,
     });
 
-    const data = response.data.match(/"uri":"(\/blog\/.*?)"/g);
+    const $ = load(response.data);
+    const data = JSON.parse($('#__NEXT_DATA__').text()).props.pageProps.pageData.page;
+    const links: string[] = data.contents.flatMap((content) => content.collection?.itemsConnection?.items?.map((item) => item.link?.href).filter(Boolean) ?? []);
+    const list = [...new Set(links)].map((link) => ({ link: new URL(link, currentUrl).href }));
 
-    let items = data.map((item) => ({
-        link: `${rootUrl}${language ? `/${language}` : ''}${item.match(/"(\/blog\/.*?)"/)[1]}`,
-    }));
-
-    items = await Promise.all(
-        items.map((item) =>
+    const items = await pMap(
+        list,
+        (item) =>
             cache.tryGet(item.link, async () => {
                 const detailResponse = await got({
                     method: 'get',
@@ -63,34 +74,25 @@ async function handler(ctx) {
                 });
 
                 const content = load(detailResponse.data);
-                const detail = JSON.parse(`{${detailResponse.data.match(/("title":.*?),"body":/)[1]}}`);
+                const detail = JSON.parse(content('#__NEXT_DATA__').text()).props.pageProps.pageData.page;
 
-                content('h1').remove();
-                content('h5').parent().remove();
-                content('div[data-testid="Text-embedded-entry-block"]').remove();
+                const imageUrl = detail.featuredMedia?.file?.url;
+                const image = imageUrl ? new URL(imageUrl, item.link).href : undefined;
 
-                content('img').each(function () {
-                    const image = (content(this).attr('srcset') ?? content(this).attr('src')).split('?w=')[0];
-
-                    content(this).replaceWith(
-                        art(path.join(__dirname, 'templates/description.art'), {
-                            image,
-                        })
-                    );
-                });
-
-                item.title = detail.title;
-                item.author = detail.author.name;
-                item.pubDate = parseDate(detail.pubDate, 'MMMM YYYY');
-                item.category = [...(detail.tags?.map((t) => t.title) ?? []), ...(detail.category?.map((c) => c.title) ?? [])];
-                item.description = art(path.join(__dirname, 'templates/description.art'), {
-                    header: content('header[data-csk-entry-type="blog"]').html(),
-                    description: content('div[data-csk-entry-type="blog"] div[data-testid="Text-root"]').html(),
-                });
-
-                return item;
-            })
-        )
+                return {
+                    ...item,
+                    image,
+                    title: detail.title,
+                    author: detail.author?.name,
+                    pubDate: detail.pubDateIso ? parseDate(detail.pubDateIso) : undefined,
+                    category: [...(detail.tags?.map((tag) => tag.title) ?? []), ...(detail.category?.map((category) => category.title) ?? [])],
+                    description: renderDescription({
+                        image,
+                        description: content('main [data-testid="Text-root"]').first().html() ?? undefined,
+                    }),
+                };
+            }),
+        { concurrency: 3 }
     );
 
     return {

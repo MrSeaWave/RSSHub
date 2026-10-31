@@ -1,18 +1,19 @@
 import { getCurrentCell, setCurrentCell } from 'node-network-devtools';
-import { useCustomHeader } from './fetch';
-import { describe, beforeEach, afterEach, test, expect } from 'vitest';
+import undici from 'undici';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-const getInitRequest = () =>
-    ({
-        requestHeaders: {} as Record<string, string>,
-        id: '',
-        loadCallFrames: () => {},
-        cookies: '',
-        requestData: '',
-        responseData: '',
-        responseHeaders: {},
-        responseInfo: {},
-    }) satisfies NonNullable<ReturnType<typeof getCurrentCell>>['request'];
+import wrappedFetch, { useCustomHeader } from './fetch';
+
+const getInitRequest = (): NonNullable<ReturnType<typeof getCurrentCell>>['request'] => ({
+    requestHeaders: {},
+    id: '',
+    loadCallFrames: () => {},
+    cookies: '',
+    requestData: '',
+    responseData: '',
+    responseHeaders: {},
+    responseInfo: {},
+});
 
 enum Env {
     dev = 'dev',
@@ -32,7 +33,7 @@ describe('useCustomHeader', () => {
         process.env.NODE_ENV = originalEnv;
     });
 
-    test('should register request with custom headers in dev environment', () => {
+    test('should register request with custom headers in dev environment', async () => {
         process.env.NODE_ENV = Env.dev;
 
         const headers = new Headers();
@@ -47,7 +48,7 @@ describe('useCustomHeader', () => {
             isAborted: false,
         });
 
-        useCustomHeader(headers);
+        await useCustomHeader(headers);
 
         const cell = getCurrentCell();
         expect(cell).toBeDefined();
@@ -62,7 +63,7 @@ describe('useCustomHeader', () => {
         expect(request.requestHeaders[headerText]).toEqual(headerValue);
     });
 
-    test('should not register request in non-dev environment', () => {
+    test('should not register request in non-dev environment', async () => {
         process.env.NODE_ENV = Env.production;
 
         const headers = new Headers();
@@ -77,7 +78,7 @@ describe('useCustomHeader', () => {
             pipes: [],
             isAborted: false,
         });
-        useCustomHeader(headers);
+        await useCustomHeader(headers);
 
         const cell = getCurrentCell();
         expect(cell).toBeDefined();
@@ -90,5 +91,21 @@ describe('useCustomHeader', () => {
         }
 
         expect(req.requestHeaders[headerText]).toBeUndefined();
+    });
+});
+
+describe('wrappedFetch', () => {
+    test('throws when fetch fails', async () => {
+        const fetchSpy = vi.spyOn(undici, 'fetch').mockRejectedValueOnce(new Error('boom'));
+
+        await expect(wrappedFetch('http://example.com')).rejects.toThrow('boom');
+
+        fetchSpy.mockRestore();
+    });
+
+    test('installs a global dispatcher that prefers h2 in ALPN', () => {
+        const dispatcher = undici.getGlobalDispatcher();
+        const optionsKey = Object.getOwnPropertySymbols(dispatcher).find((s) => s.description === 'options')!;
+        expect(dispatcher[optionsKey].connect.preferH2).toBe(true);
     });
 });

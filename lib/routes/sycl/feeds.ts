@@ -1,4 +1,4 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
@@ -18,9 +18,9 @@ export const route: Route = {
     name: 'Feeds',
     maintainers: ['mocusez'],
     handler,
-    description: `|  Events  | News |    Research Paper     |  Videos  |
-| :----: | :--: | :-------------: | :----: |
-| events | news | research_papers | videos |`,
+    description: `| Events | News |  Research Paper  | Videos |
+| :----: | :--: | :--------------: | :----: |
+| events | news | research\\_papers | videos |`,
 };
 
 async function handler(ctx) {
@@ -34,14 +34,16 @@ async function handler(ctx) {
     const items = data.items.map((item) => ({
         title: item.title,
         link: item.external_url,
-        description: item.content_html,
-        pubDate: parseDate(item.date_published),
-        author: item.author.name,
+        description: item.content_html || item.summary,
+        pubDate: item.date_published?.trim() ? parseDate(item.date_published) : undefined,
+        author: item.author?.name,
+        category: item.tags,
+        image: item.image,
     }));
 
     return {
         title: `SYCL.tech ${feed}`,
-        link: `https://feeds.sycl.tech/${feed}/feed.json`,
+        link: 'https://feeds.sycl.tech/',
         item: items,
     };
 }

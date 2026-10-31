@@ -1,8 +1,9 @@
-import { Route } from '@/types';
+import { config } from '@/config';
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import { config } from '@/config';
 
 export const route: Route = {
     path: '/rczp/:type',
@@ -26,8 +27,8 @@ export const route: Route = {
     maintainers: ['ret-1'],
     handler,
     description: `| 信息发布 | 教研类岗位 | 管理岗位及其他 |
-  | -------- | ---------- | -------------- |
-  | xxfb     | jylgw      | gllgw          |`,
+| -------- | ---------- | -------------- |
+| xxfb     | jylgw      | gllgw          |`,
 };
 
 async function handler(ctx) {
@@ -37,6 +38,9 @@ async function handler(ctx) {
         jylgw: { title: '教研类岗位', channelid: '9420,9421,9422,9423' },
         gllgw: { title: '管理岗位及其他', channelid: '9424,9425,9426' },
     };
+    if (!Object.hasOwn(title_dict, type)) {
+        throw new InvalidParameterError('Unsupported type. Use xxfb, jylgw, or gllgw.');
+    }
     const link = `https://rczp.nju.edu.cn/sylm/${type}/index.html`;
 
     const data = await cache.tryGet(

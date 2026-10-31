@@ -1,13 +1,13 @@
-import { Route } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
+import { load } from 'cheerio';
+import pMap from 'p-map';
 
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
-import { art } from '@/utils/render';
-import path from 'node:path';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import { renderDescription } from './templates/description';
 
 export const route: Route = {
     path: '/ask/jinghua',
@@ -34,11 +34,11 @@ export const route: Route = {
 };
 
 async function handler(ctx) {
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 50;
+    const limit = getRouteLimit(ctx, 50);
 
     const rootUrl = 'https://ask.imiker.com';
     const apiUrl = new URL('explore/main/list/', rootUrl).href;
-    const currentUrl = new URL(``, rootUrl).href;
+    const currentUrl = new URL('', rootUrl).href;
 
     const { data: response } = await got(apiUrl, {
         searchParams: {
@@ -49,23 +49,22 @@ async function handler(ctx) {
         },
     });
 
-    let items = response.slice(0, limit).map((item) => ({
+    let items: Array<DataItem & { link: string; description: string }> = response.slice(0, limit).map((item) => ({
         title: item.question_content,
         link: new URL(`question/${item.id}`, rootUrl).href,
-        description: art(path.join(__dirname, 'templates/description.art'), {
-            headImage: item.headimage,
-            author: item.nick_name,
+        description: renderDescription({
             question: item.question_detail,
         }),
         author: item.nick_name,
         guid: `imiker-${item.id}`,
-        pubDate: parseDate(item.add_time_timestamp * 1000),
+        pubDate: item.add_time_timestamp !== undefined && item.add_time_timestamp !== null ? parseDate(item.add_time_timestamp * 1000) : undefined,
         upvotes: item.count?.vote_count ?? 0,
         comments: item.count?.answer_count ?? 0,
     }));
 
-    items = await Promise.all(
-        items.map((item) =>
+    items = await pMap(
+        items,
+        (item) =>
             cache.tryGet(item.link, async () => {
                 const { data: detailResponse } = await got(item.link);
 
@@ -75,7 +74,7 @@ async function handler(ctx) {
                     const image = content(e).find('img');
 
                     content(e).replaceWith(
-                        art(path.join(__dirname, 'templates/description.art'), {
+                        renderDescription({
                             image: {
                                 src: image.prop('data-original'),
                                 alt: image.prop('alt'),
@@ -87,14 +86,14 @@ async function handler(ctx) {
                 });
 
                 item.title = content('div.title h1').text();
-                item.description += art(path.join(__dirname, 'templates/description.art'), {
-                    description: content('div#warp').html(),
+                item.description += renderDescription({
+                    description: content('div#warp').html() ?? undefined,
                 });
                 item.author = content('div.name').text();
 
                 return item;
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
     const author = '米课圈';
@@ -106,11 +105,9 @@ async function handler(ctx) {
         title: `${author} - ${description}`,
         link: currentUrl,
         description,
-        language: 'zh',
+        language: 'zh' as const satisfies Language,
         icon,
         logo: icon,
-        subtitle: description,
         author,
-        allowEmpty: true,
     };
 }

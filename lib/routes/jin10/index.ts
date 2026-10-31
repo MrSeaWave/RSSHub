@@ -1,18 +1,16 @@
-import { Route, ViewType } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
-
+import { config } from '@/config';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
-import { art } from '@/utils/render';
-import path from 'node:path';
-import { config } from '@/config';
+
+import { renderDescription } from './templates/description';
 
 export const route: Route = {
     path: '/:important?',
-    categories: ['finance', 'popular'],
+    categories: ['finance'],
     view: ViewType.Notifications,
     example: '/jin10',
     parameters: { important: '只看重要，任意值开启，留空关闭' },
@@ -57,33 +55,31 @@ async function handler(ctx) {
         false
     );
 
-    const item = data.map((item) => {
-        const titleMatch = item.data.content.match(/^【(.*?)】/);
-        let title;
-        let content = item.data.content;
-        if (titleMatch) {
-            title = titleMatch[1];
-            content = content.replace(titleMatch[0], '');
-        } else {
-            title = item.data.vip_title || item.data.content;
-        }
+    const item = data
+        .filter((item) => !important || item.important)
+        .map((item) => {
+            const titleMatch = item.data.content.match(/^【(.*?)】/);
+            let title;
+            let content = item.data.content;
+            if (titleMatch) {
+                title = titleMatch[1];
+                content = content.replace(titleMatch[0], '');
+            } else {
+                title = item.data.vip_title || item.data.content;
+            }
 
-        return {
-            title,
-            description: art(path.join(__dirname, 'templates/description.art'), {
-                content,
-                pic: item.data.pic,
-            }),
-            pubDate: timezone(parseDate(item.time), 8),
-            link: item.data.link,
-            guid: `jin10:index:${item.id}`,
-            important: item.important,
-        };
-    });
+            return {
+                title,
+                description: renderDescription(content, item.data.pic),
+                pubDate: timezone(parseDate(item.time), 8),
+                link: item.data.link,
+                guid: `jin10:index:${item.id}`,
+            };
+        });
 
     return {
         title: '金十数据',
         link: 'https://www.jin10.com/',
-        item: important ? item.filter((item) => item.important) : item,
+        item,
     };
 }

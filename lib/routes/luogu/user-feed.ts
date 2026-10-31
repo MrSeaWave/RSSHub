@@ -1,8 +1,11 @@
-import { Route } from '@/types';
+import MarkdownIt from 'markdown-it';
+
+import type { Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import MarkdownIt from 'markdown-it';
+
 import { getUserInfoFromUID } from './utils';
+
 const md = MarkdownIt();
 
 export const route: Route = {
@@ -43,7 +46,6 @@ async function handler(ctx) {
         description: userInfo.description,
         image: userInfo.avatar,
         link: `https://www.luogu.com.cn/user/${uid}#activity`,
-        allowEmpty: true,
         item: data.map((item) => ({
             title: item.content,
             description: md.render(item.content),

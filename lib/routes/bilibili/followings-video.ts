@@ -1,10 +1,11 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
-import cache from './cache';
 import { config } from '@/config';
-import utils from './utils';
 import ConfigNotFoundError from '@/errors/types/config-not-found';
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import logger from '@/utils/logger';
+
+import cache from './cache';
+import utils from './utils';
 
 export const route: Route = {
     path: '/followings/video/:uid/:embed?',
@@ -31,20 +32,21 @@ export const route: Route = {
     name: '用户关注视频动态',
     maintainers: ['LogicJake'],
     handler,
-    description: `:::warning
-  用户动态需要 b 站登录后的 Cookie 值，所以只能自建，详情见部署页面的配置模块。
-  :::`,
+    description: `::: warning
+用户动态需要 b 站登录后的 Cookie 值，所以只能自建，详情见部署页面的配置模块。
+:::`,
 };
 
 async function handler(ctx) {
     const uid = String(ctx.req.param('uid'));
     const embed = !ctx.req.param('embed');
-    const name = await cache.getUsernameFromUID(uid);
 
     const cookie = config.bilibili.cookies[uid];
     if (cookie === undefined) {
         throw new ConfigNotFoundError('缺少对应 uid 的 Bilibili 用户登录后的 Cookie 值');
     }
+
+    const name = await cache.getUsernameFromUID(uid);
 
     const response = await got({
         method: 'get',
@@ -78,7 +80,7 @@ async function handler(ctx) {
 
     return {
         title: `${name} 关注视频动态`,
-        link: `https://t.bilibili.com/?tab=8`,
+        link: 'https://t.bilibili.com/?tab=8',
         item: out,
     };
 }

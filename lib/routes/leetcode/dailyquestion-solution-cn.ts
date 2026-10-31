@@ -1,27 +1,32 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import MarkdownIt from 'markdown-it';
+
+import type { Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+
 const md = MarkdownIt({
     html: true,
     breaks: true,
 });
-import { parseDate } from '@/utils/parse-date';
-import timezone from '@/utils/timezone';
+
 export const route: Route = {
     path: '/dailyquestion/solution/cn',
+    categories: ['programming'],
+    example: '/leetcode/dailyquestion/solution/cn',
     radar: [
         {
             source: ['leetcode.cn/'],
         },
     ],
-    name: 'Unknown',
-    maintainers: [],
+    name: '每日一题题解',
+    maintainers: ['woaidouya123'],
     handler,
     url: 'leetcode.cn/',
 };
 
 async function handler() {
-    const baseurl = `https://leetcode.cn`;
+    const baseurl = 'https://leetcode.cn';
     const url = `${baseurl}/graphql/`;
     const headers = {
         'content-type': 'application/json',
@@ -31,27 +36,29 @@ async function handler() {
         Easy: '🟢',
         Hard: '🔴',
     };
-    // 获取每日一题
+    // Fetch the daily challenge.
     const data = (
         await got({
             method: 'post',
             url,
             json: {
                 operationName: 'questionOfToday',
-                query: `query questionOfToday {
-                            todayRecord {
-                                date
-                                userStatus
-                                question {
-                                    questionId
-                                    frontendQuestionId: questionFrontendId
-                                    difficulty
-                                    title
-                                    titleCn: translatedTitle
-                                    titleSlug
-                                }
+                query: /* GraphQL */ `
+                    query questionOfToday {
+                        todayRecord {
+                            date
+                            userStatus
+                            question {
+                                questionId
+                                frontendQuestionId: questionFrontendId
+                                difficulty
+                                title
+                                titleCn: translatedTitle
+                                titleSlug
                             }
-                        }`,
+                        }
+                    }
+                `,
                 variables: {},
             },
             headers,
@@ -60,29 +67,31 @@ async function handler() {
     const questionTitle = data.todayRecord[0].question.titleSlug;
     const questionUrl = `${baseurl}/problems/${questionTitle}/`;
 
-    // 获取题目内容
+    // Fetch the question content.
     const question = (
         await got({
             method: 'post',
             url,
             json: {
                 operationName: 'questionData',
-                query: `query questionData($titleSlug: String!) {
-                            question(titleSlug: $titleSlug) {
-                                questionId
-                                questionFrontendId
-                                categoryTitle
-                                boundTopicId
-                                title
-                                titleSlug
-                                content
-                                translatedTitle
-                                translatedContent
-                                isPaidOnly
-                                difficulty
-                                likes
-                            }
-                        }`,
+                query: /* GraphQL */ `
+                    query questionData($titleSlug: String!) {
+                        question(titleSlug: $titleSlug) {
+                            questionId
+                            questionFrontendId
+                            categoryTitle
+                            boundTopicId
+                            title
+                            titleSlug
+                            content
+                            translatedTitle
+                            translatedContent
+                            isPaidOnly
+                            difficulty
+                            likes
+                        }
+                    }
+                `,
                 variables: {
                     titleSlug: questionTitle,
                 },
@@ -91,37 +100,39 @@ async function handler() {
         })
     ).data.data.question;
     const diffEmoji = emoji[question.difficulty] || '';
-    // 获取题解（点赞前3）
+    // Fetch the three most upvoted solutions.
     const articles = (
         await got({
             method: 'post',
             url,
             json: {
                 operationName: 'questionSolutionArticles',
-                query: `query questionSolutionArticles($questionSlug: String!, $skip: Int, $first: Int, $orderBy: SolutionArticleOrderBy, $userInput: String, $tagSlugs: [String!]) {
-                            questionSolutionArticles(questionSlug: $questionSlug, skip: $skip, first: $first, orderBy: $orderBy, userInput: $userInput, tagSlugs: $tagSlugs) {
-                                totalNum
-                                edges {
-                                    node {
+                query: /* GraphQL */ `
+                    query questionSolutionArticles($questionSlug: String!, $skip: Int, $first: Int, $orderBy: SolutionArticleOrderBy, $userInput: String, $tagSlugs: [String!]) {
+                        questionSolutionArticles(questionSlug: $questionSlug, skip: $skip, first: $first, orderBy: $orderBy, userInput: $userInput, tagSlugs: $tagSlugs) {
+                            totalNum
+                            edges {
+                                node {
                                     ...solutionArticle
-                                    __typename
-                                    }
                                     __typename
                                 }
                                 __typename
                             }
+                            __typename
                         }
-                        fragment solutionArticle on SolutionArticleNode {
-                            uuid
-                            title
-                            slug
-                            createdAt
-                            thumbnail
-                            author {
-                                username
-                            }
-                            summary
-                        }`,
+                    }
+                    fragment solutionArticle on SolutionArticleNode {
+                        uuid
+                        title
+                        slug
+                        createdAt
+                        thumbnail
+                        author {
+                            username
+                        }
+                        summary
+                    }
+                `,
                 variables: {
                     questionSlug: questionTitle,
                     first: 3,
@@ -132,50 +143,53 @@ async function handler() {
             headers,
         })
     ).data.data.questionSolutionArticles.edges;
-    // 获取题解内容
-    const articleContent = (
-        await Promise.all(
-            articles.map((art) =>
-                got({
+    // Fetch each solution body.
+    const articleContent = await Promise.all(
+        articles.map((art) =>
+            cache.tryGet(`leetcode:cn:solution:${art.node.slug}`, async () => {
+                const response = await got({
                     method: 'post',
                     url,
                     json: {
                         operationName: 'solutionDetailArticle',
-                        query: `query solutionDetailArticle($slug: String!, $orderBy: SolutionArticleOrderBy!) {
-                                    solutionArticle(slug: $slug, orderBy: $orderBy) {
-                                        ...solutionArticle
-                                        content
-                                        question {
-                                            questionTitleSlug
-                                            __typename
-                                        }
+                        query: /* GraphQL */ `
+                            query solutionDetailArticle($slug: String!, $orderBy: SolutionArticleOrderBy!) {
+                                solutionArticle(slug: $slug, orderBy: $orderBy) {
+                                    ...solutionArticle
+                                    content
+                                    question {
+                                        questionTitleSlug
+                                        __typename
                                     }
                                 }
-                                fragment solutionArticle on SolutionArticleNode {
-                                    uuid
-                                    title
-                                    slug
-                                    createdAt
-                                    thumbnail
-                                    author {
-                                        username
-                                    }
-                                    summary
-                                }`,
+                            }
+                            fragment solutionArticle on SolutionArticleNode {
+                                uuid
+                                title
+                                slug
+                                createdAt
+                                thumbnail
+                                author {
+                                    username
+                                }
+                                summary
+                            }
+                        `,
                         variables: {
                             slug: art.node.slug,
                             orderBy: 'DEFAULT',
                         },
                     },
                     headers,
-                })
-            )
+                });
+                return response.data.data.solutionArticle;
+            })
         )
-    ).map((v) => v.data.data.solutionArticle);
+    );
 
     const handleText = (s) => {
-        // 处理多语言代码展示问题
-        s = s.replaceAll(/(```)([\d#+A-Za-z-]+)\s*?(\[.*?])?\n/g, '\r\n###$2\r\n$1$2\r\n');
+        // Normalize code blocks for multiple languages.
+        s = s.replaceAll(/(```)([\d#+A-Z-]+)\s*?(\[.*?\])?\n/gi, '\r\n###$2\r\n$1$2\r\n');
         return s;
     };
     return {
@@ -187,13 +201,13 @@ async function handler() {
                 title: `每日一题-${question.translatedTitle}${diffEmoji}`,
                 link: questionUrl,
                 description: question.translatedContent,
-                pubDate: timezone(parseDate(data.todayRecord[0].date), +8),
+                pubDate: data.todayRecord[0].date ? parseDate(`${data.todayRecord[0].date}T00:00:00Z`) : undefined,
             },
             ...articleContent.map((art, i) => ({
                 title: art.title,
-                link: `${questionUrl}/solution/${art.slug}`,
+                link: new URL(`solution/${art.slug}`, questionUrl).href,
                 description: md.render(handleText(art.content)),
-                pubDate: timezone(parseDate(articles[i].node.createdAt), +8),
+                pubDate: articles[i].node.createdAt ? parseDate(articles[i].node.createdAt) : undefined,
                 author: art.author.username,
             })),
         ],

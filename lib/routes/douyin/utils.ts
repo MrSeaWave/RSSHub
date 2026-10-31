@@ -1,13 +1,17 @@
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
+import type { Page } from 'patchright';
 
-import path from 'node:path';
+import { config } from '@/config';
+
+import { renderCover } from './templates/cover';
+import { renderDesc } from './templates/desc';
+import { renderEmbed } from './templates/embed';
+import { renderIframe } from './templates/iframe';
 
 const templates = {
-    desc: path.join(__dirname, 'templates/desc.art'),
-    cover: path.join(__dirname, 'templates/cover.art'),
-    embed: path.join(__dirname, 'templates/embed.art'),
-    iframe: path.join(__dirname, 'templates/iframe.art'),
+    desc: renderDesc,
+    cover: renderCover,
+    embed: renderEmbed,
+    iframe: renderIframe,
 };
 
 const resolveUrl = (url, tls = true, forceResolve = false) => {
@@ -32,12 +36,11 @@ const proxyVideo = (url, proxy) => {
             proxy += '=';
         }
         return proxy + encodeURIComponent(url);
-    } else {
-        if (!proxy.endsWith('/')) {
-            proxy += '/';
-        }
-        return proxy + url;
     }
+    if (!proxy.endsWith('/')) {
+        proxy += '/';
+    }
+    return proxy + url;
 };
 
 const getOriginAvatar = (url) =>
@@ -45,4 +48,16 @@ const getOriginAvatar = (url) =>
         .replace(/^(.*\.douyinpic\.com\/).*(\/aweme-avatar\/)([^?]*)(\?.*)?$/, '$1origin$2$3')
         .replaceAll(/~\w+_\d+x\d+/g, '');
 
-export { templates, resolveUrl, proxyVideo, getOriginAvatar };
+export { getOriginAvatar, proxyVideo, resolveUrl, templates };
+
+export const getApiResponse = async (page: Page, pageUrl: string, apiPath: string) => {
+    const [response] = await Promise.all([page.waitForResponse((response) => response.url().includes(apiPath), { timeout: config.requestTimeout }), page.goto(pageUrl, { waitUntil: 'domcontentloaded' })]);
+    if (!response.ok()) {
+        throw new Error(`Douyin API returned HTTP ${response.status()}. Anonymous access may be blocked by the source site.`);
+    }
+    try {
+        return await response.json();
+    } catch {
+        throw new Error(`Douyin API returned invalid JSON (HTTP ${response.status()}). Anonymous access may be blocked by the source site.`);
+    }
+};

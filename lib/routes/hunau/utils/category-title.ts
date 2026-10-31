@@ -1,4 +1,4 @@
-const categoryTitle = (type) => {
+export const categoryTitle = (type) => {
     let title;
     type = type.slice(0, 4).toLowerCase();
 
@@ -11,6 +11,9 @@ const categoryTitle = (type) => {
             break;
         case 'jwdt':
             title = '教务动态';
+            break;
+        case 'xyyw':
+            title = '学院要闻';
             break;
         case 'xyxw':
             title = '学院新闻';
@@ -27,5 +30,3 @@ const categoryTitle = (type) => {
 
     return title;
 };
-
-export default categoryTitle;

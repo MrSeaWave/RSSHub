@@ -1,4 +1,5 @@
-import { Data, Route } from '@/types';
+import type { Data, Route } from '@/types';
+import { parseDate } from '@/utils/parse-date';
 import parser from '@/utils/rss-parser';
 
 export const route: Route = {
@@ -14,13 +15,15 @@ const createItem = (item) => ({
     title: item.title,
     link: item.link,
     description: item.contentSnippet,
+    category: item.categories,
+    pubDate: item.isoDate || item.pubDate ? parseDate(item.isoDate ?? item.pubDate) : undefined,
 });
 
 async function handler(): Promise<Data> {
     const feed = await parser.parseURL('https://www.autocentre.ua/rss');
 
     return {
-        title: feed.title as string,
+        title: feed.title!,
         link: feed.link,
         description: feed.description,
         language: 'uk',

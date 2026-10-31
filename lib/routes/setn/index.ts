@@ -1,8 +1,12 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
 
 const defaultRootUrl = 'https://www.setn.com';
 
@@ -67,21 +71,27 @@ export const route: Route = {
     handler,
     url: 'setn.com/ViewAll.aspx',
     description: `| 即時 | 熱門 | 娛樂 | 政治 | 社會 |
-  | ---- | ---- | ---- | ---- | ---- |
+| ---- | ---- | ---- | ---- | ---- |
 
-  | 國際 | 兩岸 | 生活 | 健康 | 旅遊 |
-  | ---- | ---- | ---- | ---- | ---- |
+| 國際 | 兩岸 | 生活 | 健康 | 旅遊 |
+| ---- | ---- | ---- | ---- | ---- |
 
-  | 運動 | 地方 | 財經 | 富房網 | 名家 |
-  | ---- | ---- | ---- | ------ | ---- |
+| 運動 | 地方 | 財經 | 富房網 | 名家 |
+| ---- | ---- | ---- | ------ | ---- |
 
-  | 新奇 | 科技 | 汽車 | 寵物 | 女孩 | HOT 焦點 |
-  | ---- | ---- | ---- | ---- | ---- | -------- |`,
+| 新奇 | 科技 | 汽車 | 寵物 | 女孩 | HOT 焦點 |
+| ---- | ---- | ---- | ---- | ---- | -------- |`,
+};
+
+type NewsArticleLd = {
+    '@type'?: string;
+    articleSection?: string;
+    author?: Array<{ name?: string }> | { name?: string };
 };
 
 async function handler(ctx) {
     const category = ctx.req.param('category') ?? '即時';
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 42;
+    const limit = getRouteLimit(ctx, 42);
 
     const currentUrl = getCurrentUrl(category);
 
@@ -92,15 +102,16 @@ async function handler(ctx) {
 
     const $ = load(response.data);
 
-    let items = $('#NewsList, .newsList, .hotNewsList')
-        .find('.newsItems, .st-news, .all_three_list, div.title-word')
+    let items = $('#NewsList, .newsList, .hotNewsList, .news_list_area')
+        .find('.newsItems, .st-news, .all_three_list, div.title-word, .news_list_item')
         .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
-            const a = item.find('a').last();
-            const link = a.attr('href').replaceAll(/(\?|&)utm_campaign=.*/g, '');
+            const desktopTitle = $item.find('.title_pc a');
+            const a = desktopTitle.length ? desktopTitle.first() : $item.find('a').last();
+            const link = a.attr('href')!.replaceAll(/(\?|&)utm_campaign=.*/g, '');
 
             return {
                 title: a.text(),
@@ -108,9 +119,10 @@ async function handler(ctx) {
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
+    items = await pMap(
+        items,
+        (item) =>
+            cache.tryGet(`setn:category-v5:${item.link}`, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,
@@ -118,16 +130,41 @@ async function handler(ctx) {
 
                 const content = load(detailResponse.data);
 
+                const head = content('script[type="application/ld+json"]')
+                    .toArray()
+                    .map((script): NewsArticleLd | undefined => {
+                        try {
+                            return JSON.parse(content(script).text());
+                        } catch {
+                            return undefined;
+                        }
+                    })
+                    .find((data) => data?.['@type'] === 'NewsArticle');
+                const authors = Array.isArray(head?.author) ? head.author : head?.author ? [head.author] : [];
+
                 content('#gad_setn_innity_oop_1x1').remove();
 
-                item.author = content('meta[property="author"]').attr('content');
-                item.category = [content('meta[property="article:section"]').attr('content'), ...content('meta[name="news_keywords"]').attr('content').split(',')];
-                item.pubDate = parseDate(content('meta[property="article:published_time"]').attr('content'));
-                item.description = content('article, .content-p').html();
+                item.title = content('h1').text();
+                item.author =
+                    authors
+                        .map((author) => author.name)
+                        .filter(Boolean)
+                        .join(', ') || content('meta[name="author"]').attr('content');
+                item.category = [head?.articleSection ?? content('meta[property="article:section"]').attr('content'), ...(content('meta[name="news_keywords"]').attr('content')?.split(',') ?? [])].filter(
+                    (value): value is string => typeof value === 'string' && value.length > 0
+                );
+                const clock = content('.article_time_box')
+                    .text()
+                    .match(/\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}/)?.[0];
+                const publishedTime = clock ?? content('meta[property="article:published_time"]').attr('content');
+                if (publishedTime) {
+                    item.pubDate = clock ? timezone(parseDate(clock, 'YYYY/MM/DD HH:mm:ss'), 8) : parseDate(publishedTime);
+                }
+                item.description = content('.article_content_area').first().html() ?? content('.content-p, article').first().html();
 
                 return item;
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
     return {

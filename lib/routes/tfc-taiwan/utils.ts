@@ -1,55 +1,51 @@
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
-
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import path from 'node:path';
-import { art } from '@/utils/render';
-import asyncPool from 'tiny-async-pool';
+
+import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
-const asyncPoolAll = async (...args) => {
-    const results = [];
-    for await (const result of asyncPool(...args)) {
-        results.push(result);
-    }
-    return results;
-};
+export const baseUrl = 'https://tfc-taiwan.org.tw';
 
-const baseUrl = 'https://tfc-taiwan.org.tw';
+const bylinePattern = /^[（(]?記者[：／]([^；;）)]+)[；;]\s*責任編輯[：／][^）)]+[）)]?$/;
 
-const parseList = (item) => {
-    const a = item.find('.entity-list-title a');
+const parsePostItem = (item) => {
+    const $ = load(item.content.rendered, null, false);
+    const byline = $('p')
+        .filter((_, element) => bylinePattern.test($(element).text().trim()))
+        .first();
+    const author = bylinePattern.exec(byline.text().trim())?.[1].trim();
+    byline.remove();
+    const titleText = $('<span>').html(item.title.rendered).text();
+    $('style, script, .wp-block-outermost-social-sharing').remove();
+    $('.wp-block-kadence-advancedheading')
+        .filter((_, element) => $(element).text() === titleText || /^發佈：\d{4}-\d{2}-\d{2}$/.test($(element).text()))
+        .remove();
+    $('.wp-block-kadence-dynamiclist')
+        .filter((_, element) => {
+            const links = $(element).find('a');
+            return links.length > 0 && links.toArray().every((link) => $(link).attr('href')?.startsWith(`${baseUrl}/category/`));
+        })
+        .remove();
     return {
-        title: a.text(),
-        description: item.find('.entity-list-body').text(),
-        link: new URL(a.attr('href'), baseUrl).href,
-        pubDate: item.find('.post-date').length ? parseDate(item.find('.post-date').text(), 'YYYY-MM-DD') : undefined,
-        image: item.find('.entity-list-img img').attr('src').split('?')[0],
+        title: item.title.rendered,
+        pubDate: item.date_gmt ? parseDate(`${item.date_gmt}Z`) : undefined,
+        updated: item.modified_gmt ? parseDate(`${item.modified_gmt}Z`) : undefined,
+        link: item.link,
+        description: $.html(),
+        image: item.yoast_head_json.og_image?.[0]?.url,
+        author: author ?? item.author_info.display_name,
+        category: item.category_info.map((cat) => cat.name),
     };
 };
 
-const parseItems = (list, tryGet) =>
-    asyncPoolAll(10, list, (item) =>
-        tryGet(item.link, async () => {
-            const { data: response } = await got(item.link);
-            const $ = load(response);
+export const parseItem = (postsResponse) => postsResponse.map((item) => parsePostItem(item));
 
-            $('.field-name-field-addthis, #fb-root, .fb-comments, .likecoin-embed, style[type="text/css"]').remove();
-
-            item.description = art(path.join(__dirname, 'templates/article.art'), {
-                headerImage: item.image,
-                content: $('#block-system-main .node-content').html(),
-            });
-
-            item.pubDate = $('meta[property="article:published_time"]').attr('content');
-            item.updated = $('meta[property="article:modified_time"]').attr('content');
-            item.category = $('.node-tags .field-item')
-                .toArray()
-                .map((item) => $(item).text());
-
-            return item;
+export const parsePost = (limit, categoryId) =>
+    cache.tryGet(`tfc-taiwan:posts:${categoryId ?? 'latest'}:${limit ?? 10}`, () =>
+        ofetch(`${baseUrl}/wp-json/wp/v2/posts`, {
+            query: {
+                categories: categoryId,
+                per_page: limit,
+            },
         })
     );
-
-export { baseUrl, parseList, parseItems };

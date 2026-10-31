@@ -1,9 +1,13 @@
-import { Route } from '@/types';
+import pMap from 'p-map';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Data, DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
-import { token, apiUrl, rootUrl, renderDesc, getBoards } from './utils';
+
+import { apiUrl, getBoards, renderDesc, rootUrl, token } from './utils';
 
 export const route: Route = {
     path: '/student5/:board?',
@@ -23,9 +27,21 @@ export const route: Route = {
     handler,
 };
 
-async function handler(ctx) {
+const getPublicationDate = (value?: string): Date | undefined => {
+    if (typeof value !== 'string' || !/\S/.test(value)) {
+        return undefined;
+    }
+    const date = timezone(parseDate(value), 8);
+    return Number.isFinite(date.getTime()) ? date : undefined;
+};
+
+async function handler(ctx): Promise<Data> {
     const { board = '' } = ctx.req.param();
-    const title = board ? (await getBoards(cache.tryGet)).find((i) => i.boardId === board).title : '全部';
+    const selectedBoard = board ? (await getBoards()).find((item) => item.boardId === board) : undefined;
+    if (board && !selectedBoard) {
+        throw new InvalidParameterError(`Unknown board '${board}'. Find available board IDs at /zuvio/student5/boards.`);
+    }
+    const title = selectedBoard?.title ?? '全部';
 
     const { data } = await got(`${apiUrl}/article`, {
         searchParams: {
@@ -39,20 +55,22 @@ async function handler(ctx) {
         },
     });
 
-    const items = data.articles.map((item) => ({
+    let items = data.articles.map((item) => ({
         title: item.title,
         description: item.abstract,
-        pubDate: timezone(parseDate(item.created_at), +8),
+        pubDate: getPublicationDate(item.created_at),
         link: `${rootUrl}/article/${item.id}`,
         api: `${apiUrl}/article/${item.id}`,
         author: `${item.university} ${item.user_name}`,
         category: item.board_name,
     }));
 
-    await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
-                const { data } = await got(item.api, {
+    items = await pMap(
+        items,
+        async (item: (typeof items)[number]) => {
+            const { api, ...metadata } = item;
+            const detail = await cache.tryGet<Pick<DataItem, 'description'>>(`zuvio:detail:v5:${item.link}`, async () => {
+                const { data } = await got(api, {
                     searchParams: {
                         api_token: token,
                         user_id: '0',
@@ -60,11 +78,11 @@ async function handler(ctx) {
                         ref: '',
                     },
                 });
-                item.description = renderDesc(data);
-                delete item.api;
-                return item;
-            })
-        )
+                return { description: renderDesc(data) };
+            });
+            return { ...metadata, description: detail.description };
+        },
+        { concurrency: 3, stopOnError: false }
     );
 
     return {
@@ -73,6 +91,6 @@ async function handler(ctx) {
         image: 'https://s3.hicloud.net.tw/zuvio.public/public/system/images/irs_v4/chicken/shared/webshare.png',
         link: `${rootUrl}/articles`,
         item: items,
-        language: 'zh-Hant',
+        language: 'zh-Hant' as Language,
     };
 }

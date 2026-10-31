@@ -1,8 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import { escapeText } from 'entities';
+import { decode } from 'iconv-lite';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import { decode } from 'iconv-lite';
 
 export const route: Route = {
     path: '/volume/:id',
@@ -23,9 +26,14 @@ export const route: Route = {
 };
 
 async function handler(ctx) {
-    const aid = Number.parseInt(ctx.req.param('id'));
+    const id = ctx.req.param('id');
+    if (!/^\d+$/.test(id) || !Number.isSafeInteger(Number(id)) || Number(id) <= 0) {
+        throw new InvalidParameterError('id must be a positive integer novel ID.');
+    }
+    const aid = Number(id);
     const link = `https://www.wenku8.net/novel/${Math.floor(aid / 1000)}/${aid}/index.htm`;
-    const $ = load(await get(link));
+    const html = await get(link);
+    const $ = load(html);
     const vid = $('.vcss').last().parent().next().find('a')[0].attribs.href.replace('.htm', '');
     const volumeUrl = `https://dl.wenku8.com/packtxt.php?aid=${aid}&vid=${vid}&charset=gbk`;
     const lastestChapters = $('.vcss')
@@ -39,14 +47,16 @@ async function handler(ctx) {
     return {
         title: `轻小说文库 ${$('#title').text()} 最新卷`,
         link,
-        item: await cache.tryGet(volumeUrl, async () =>
-            [...(await get(volumeUrl)).matchAll(/\s{2}(\S.*)\r?\n([\S\s]+?)\r?\n\r?\n/g)]
+        item: await cache.tryGet(`wenku8:volume:v1:${volumeUrl}`, async () =>
+            (await get(volumeUrl))
+                .matchAll(/\s{2}(\S.*)\r?\n([\s\S]+?)\r?\n\r?\n/g)
+                .toArray()
                 .map((chapter, index) => ({
                     title: chapter[1],
                     description: chapter[2]
-                        .split('\r\n')
+                        .split(/\r?\n/)
                         .filter((line) => line.trim())
-                        .map((line) => `<p>${line.trim()}</p>`)
+                        .map((line) => `<p>${escapeText(line.trim())}</p>`)
                         .join(''),
                     guid: Buffer.from(`${vid}${chapter[1]}`).toString('base64'),
                     link: lastestChapters[index]?.link,
@@ -57,4 +67,7 @@ async function handler(ctx) {
     };
 }
 
-const get = async (url: string) => decode(await got(url).buffer(), 'gbk');
+const get = async (url: string) => {
+    const { data } = await got(url, { responseType: 'buffer' });
+    return decode(data, 'gbk');
+};

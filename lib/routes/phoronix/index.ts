@@ -1,11 +1,15 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import parser from '@/utils/rss-parser';
 import { load } from 'cheerio';
-import got from '@/utils/got';
 import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
+import timezone from 'dayjs/plugin/timezone.js';
+import utc from 'dayjs/plugin/utc.js';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+import ofetch from '@/utils/ofetch';
+import parser from '@/utils/rss-parser';
+
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
@@ -16,8 +20,16 @@ const articleCacheKey = 'phoronix:articles';
 const baseUrl = 'https://www.phoronix.com';
 const rssUrl = `${baseUrl}/rss.php`;
 
+type ArticleItem = {
+    link?: string;
+    title?: string;
+    pubDate?: string;
+    category?: string | string[];
+};
+
 const feedFetch = async () => {
-    const feed = await parser.parseURL(rssUrl);
+    const feedStr = await ofetch(rssUrl);
+    const feed = await parser.parseString(feedStr);
     return {
         title: feed.title,
         link: feed.link,
@@ -63,7 +75,7 @@ const webFetchCb = (response) => {
         icon: 'https://www.phoronix.com/android-chrome-192x192.png',
         image: 'https://www.phoronix.com/android-chrome-192x192.png',
         logo: 'https://www.phoronix.com/phxcms7-css/phoronix.png',
-        category: $('meta[name="keywords"]').attr('content').split(', '),
+        category: $('meta[name="keywords"]').attr('content')!.split(', '),
     };
 };
 
@@ -72,7 +84,8 @@ const webFetch = (url) =>
         try {
             return webFetchCb(await got(url));
         } catch (error) {
-            if ((error.name === 'HTTPError' || error.name === 'FetchError') && error.response.statusCode === 404) {
+            const err = error as { name: string; response: { statusCode: number } };
+            if ((err.name === 'HTTPError' || err.name === 'FetchError') && err.response.statusCode === 404) {
                 return '404';
             }
             throw error;
@@ -91,8 +104,8 @@ const legacyFetch = async (page, queryOrItem) => {
     }
 
     let response;
-    const webUrl = await cache.tryGet(`${redirectCacheKey}:${legacyUrl.toString()}`, async () => {
-        response = await got(legacyUrl.toString());
+    const webUrl = await cache.tryGet(`${redirectCacheKey}:${legacyUrl.href}`, async () => {
+        response = await got(legacyUrl.href);
         return response.url;
     });
     if (response) {
@@ -114,7 +127,7 @@ const tryFetch = async (category, topic) => {
 
 export const route: Route = {
     path: '/:category?/:topic?',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/phoronix/linux/KDE',
     parameters: {
         category: 'Category',
@@ -154,8 +167,11 @@ async function handler(ctx) {
             break;
     }
 
-    feed.item = await Promise.all(
-        feed.item.map((item) =>
+    const list: ArticleItem[] = feed.item;
+    const articles = list.filter((item): item is ArticleItem & { link: string } => typeof item.link === 'string' && item.link.length > 0);
+    feed.item = await pMap(
+        articles,
+        (item) =>
             cache.tryGet(`${articleCacheKey}:${item.link}`, async () => {
                 const response = await got(item.link);
                 const html = response.body;
@@ -169,7 +185,7 @@ async function handler(ctx) {
                     .slice(0, -2)
                     .toArray()
                     .map((e) => $(e).text());
-                const category = [];
+                const category: string[] = [];
                 if (item.link.includes('/news/')) {
                     category.push('News');
                 } else if (item.link.includes('/review/')) {
@@ -182,7 +198,8 @@ async function handler(ctx) {
                 let pubDate;
                 if (!item.pubDate) {
                     // the text next to the category is the date
-                    let pubDateReadable = categorySelector.length && categorySelector[0].nextSibling?.nodeValue;
+                    const dateNode = categorySelector.get(0)?.nextSibling;
+                    let pubDateReadable = dateNode?.nodeType === 3 && dateNode.nodeValue;
                     if (pubDateReadable) {
                         pubDateReadable = pubDateReadable.replaceAll(/on|at|\./g, '').trim();
                         pubDate = /\d{4}$/.test(pubDateReadable)
@@ -223,11 +240,11 @@ async function handler(ctx) {
                                 const html = response.data;
                                 const $$ = load(html);
                                 const page = $$('.content');
-                                return page.html();
+                                return page.html() ?? '';
                             })
                         )
                     );
-                    content.append(pages);
+                    content.append(...pages);
                 }
 
                 const images = content.find('img');
@@ -256,8 +273,8 @@ async function handler(ctx) {
                     image: $('meta[name="twitter:image"]').attr('content'),
                     category: item.category || category,
                 };
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
     return feed;

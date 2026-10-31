@@ -1,12 +1,14 @@
-import { Route, ViewType } from '@/types';
-import cache from '@/utils/cache';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+
 import { parseItem } from './utils';
 
 export const route: Route = {
     path: '/keyword/:keyword',
-    categories: ['finance', 'popular'],
+    categories: ['finance'],
     view: ViewType.Articles,
     example: '/gelonghui/keyword/早报',
     parameters: { keyword: '搜索关键字' },
@@ -25,12 +27,12 @@ export const route: Route = {
 
 async function handler(ctx) {
     const keyword = ctx.req.param('keyword');
-    const currentUrl = `https://www.gelonghui.com/api/post/search/v4`;
+    const currentUrl = 'https://www.gelonghui.com/api/post/search/v4';
     const { data } = await got(currentUrl, {
         searchParams: {
             keyword,
             isVipArticle: false,
-            count: ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 20,
+            count: getRouteLimit(ctx, 20),
             page: 1,
             searchArea: 'all',
         },
@@ -44,11 +46,11 @@ async function handler(ctx) {
         pubDate: parseDate(item.timestamp, 'X'),
     }));
 
-    const items = await Promise.all(list.map((item) => parseItem(item, cache.tryGet)));
+    const items = await Promise.all(list.map((item) => parseItem(item)));
 
     return {
         title: `格隆汇 - 关键词 “${keyword}” 的文章`,
-        link: currentUrl,
+        link: `https://www.gelonghui.com/search?${new URLSearchParams({ keyword })}`,
         item: items,
         description: `找到关于 “ ${keyword} ”的文章，共${data.totalCount}个结果`,
     };

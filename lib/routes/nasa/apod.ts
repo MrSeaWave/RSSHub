@@ -1,13 +1,12 @@
-import { Route, ViewType } from '@/types';
-import cache from '@/utils/cache';
-import got from '@/utils/got';
-import { load } from 'cheerio';
-import { parseDate } from '@/utils/parse-date';
-import timezone from '@/utils/timezone';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import { getAPODItems } from './utils';
 
 export const route: Route = {
     path: '/apod',
-    categories: ['picture', 'popular'],
+    categories: ['picture'],
     view: ViewType.Pictures,
     example: '/nasa/apod',
     parameters: {},
@@ -21,58 +20,24 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['apod.nasa.govundefined'],
+            source: ['apod.nasa.gov/apod/*path', 'apod.nasa.gov/apod'],
+        },
+        {
+            source: ['science.nasa.gov/apod/*path', 'science.nasa.gov/apod'],
         },
     ],
     name: 'Astronomy Picture of the Day',
     maintainers: ['nczitzk', 'williamgateszhao'],
     handler,
-    url: 'apod.nasa.govundefined',
+    url: 'apod.nasa.gov/apod/',
 };
 
 async function handler(ctx) {
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 10;
-    const rootUrl = 'https://apod.nasa.gov/apod/archivepix.html';
-    const response = await got({
-        method: 'get',
-        url: rootUrl,
-    });
-    const $ = load(response.data);
-
-    const list = $('body > b > a')
-        .slice(0, limit)
-        .map((_, el) => ({
-            title: $(el).text(),
-            link: `https://apod.nasa.gov/apod/${$(el).attr('href')}`,
-        }))
-        .get();
-
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
-                const detailResponse = await got({
-                    method: 'get',
-                    url: item.link,
-                });
-                const content = load(detailResponse.data);
-
-                const description = `<img src="${content('img').attr('src')}"> <br> ${content('body > center').eq(1).html()} <br> ${content('body > p').eq(0).html()}`;
-                const pubDate = timezone(parseDate(item.link.slice(-11, -5), 'YYMMDD'), -5);
-
-                const single = {
-                    title: item.title,
-                    description,
-                    pubDate,
-                    link: item.link,
-                };
-                return single;
-            })
-        )
-    );
+    const items = await getAPODItems(getRouteLimit(ctx, 10));
 
     return {
         title: 'NASA Astronomy Picture of the Day',
-        link: rootUrl,
+        link: 'https://science.nasa.gov/apod/archive/',
         item: items,
     };
 }

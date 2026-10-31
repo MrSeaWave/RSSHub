@@ -1,11 +1,14 @@
-import { Route, ViewType } from '@/types';
-import { parseDate } from '@/utils/parse-date';
+import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
 import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/search/:keyword',
-    categories: ['finance', 'popular'],
+    categories: ['finance'],
     view: ViewType.Articles,
     example: '/eastmoney/search/web3',
     parameters: { keyword: '关键词，可以设置为自己需要检索的关键词' },
@@ -45,7 +48,7 @@ async function handler(ctx) {
     };
     const cb = `jQuery${('3.5.1' + Math.random()).replaceAll(/\D/g, '')}_${Date.now()}`;
 
-    const url = `https://search-api-web.eastmoney.com/search/jsonp`;
+    const url = 'https://search-api-web.eastmoney.com/search/jsonp';
 
     const response = await got(url, {
         searchParams: {
@@ -61,7 +64,7 @@ async function handler(ctx) {
     const arr = obj.result.cmsArticleWebOld;
 
     const items = arr.map((item) => ({
-        title: item.title,
+        title: load(item.title).text(),
         description: item.content,
         pubDate: timezone(parseDate(item.date), 8),
         link: item.url,

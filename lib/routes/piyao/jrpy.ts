@@ -1,7 +1,9 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
 const rootUrl = 'https://www.piyao.org.cn';
@@ -36,25 +38,27 @@ async function handler() {
     const response = await got(currentUrl);
     const $ = load(response.data);
     const list = $('ul#list li')
-        .map((_, item) => ({
+        .toArray()
+        .map((item): DataItem => ({
             title: $(item).find('a').text(),
-            link: new URL($(item).find('a').attr('href'), rootUrl).href,
-        }))
-        .get();
+            link: new URL($(item).find('a').attr('href')!, rootUrl).href,
+        }));
 
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
+    const items = await pMap(
+        list,
+        (item) =>
+            cache.tryGet(`piyao:detail:v2:${item.link}`, async () => {
                 const detailResponse = await got(item.link);
                 const content = load(detailResponse.data);
 
                 item.title = content('div.con_tit > h2').text();
                 item.description = content('div.con_txt').html();
-                item.pubDate = parseDate(content('div.con_tit > p > span').text().split('时间：')[1]);
+                const date = content('div.con_tit > p > span').text().split('时间：', 2)[1]?.trim();
+                item.pubDate = date ? parseDate(`${date}T00:00:00Z`) : undefined;
 
                 return item;
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
     return {

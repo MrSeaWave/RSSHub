@@ -1,12 +1,13 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import got from '@/utils/got';
 import dayjs from 'dayjs';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
+
 import { baseUrl, getPlurk } from './utils';
 
 export const route: Route = {
     path: '/search/:keyword',
-    categories: ['social-media', 'popular'],
+    categories: ['social-media'],
     example: '/plurk/search/FGO',
     parameters: { keyword: 'Search keyword' },
     features: {
@@ -35,7 +36,7 @@ async function handler(ctx) {
     const users = apiResponse.users;
     const plurks = apiResponse.plurks;
 
-    const items = await Promise.all(plurks.map((item) => getPlurk(`plurk:${item.plurk_id}`, item, users[item.user_id].display_name, cache.tryGet)));
+    const items = await Promise.all(plurks.map((item) => getPlurk(`plurk:${item.plurk_id}`, item, users[item.user_id].display_name)));
 
     return {
         title: `Search "${keyword}" - Plurk`,

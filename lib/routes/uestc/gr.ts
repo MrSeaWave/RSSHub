@@ -1,11 +1,13 @@
-import { Data, DataItem, Route } from '@/types';
+import { load } from 'cheerio';
+import type { Context } from 'hono';
+import pMap from 'p-map';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Data, Route } from '@/types';
 import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
-import InvalidParameterError from '@/errors/types/invalid-parameter';
-import type { Context } from 'hono';
 
 const baseUrl = 'https://gr.uestc.edu.cn/';
 const detailUrl = 'https://gr.uestc.edu.cn/';
@@ -51,14 +53,14 @@ export const route: Route = {
     handler,
     url: 'gr.uestc.edu.cn/',
     description: `\
-  | 重要公告  | 教学管理 | 学位管理 | 学生管理 | 就业实践 |
-  | --------- | -------- | -------- | -------- | -------- |
-  | important | teaching | degree   | student  | practice |`,
+| 重要公告  | 教学管理 | 学位管理 | 学生管理 | 就业实践 |
+| --------- | -------- | -------- | -------- | -------- |
+| important | teaching | degree   | student  | practice |`,
 };
 
 async function handler(ctx: Context): Promise<Data> {
     const type = ctx.req.param('type') || 'important';
-    if (type in typeUrlMap === false) {
+    if (!Object.hasOwn(typeUrlMap, type)) {
         throw new InvalidParameterError('type not supported');
     }
     const typeName = typeNameMap[type];
@@ -68,35 +70,36 @@ async function handler(ctx: Context): Promise<Data> {
     const $ = load(indexContent);
     const entries = $('div.title').toArray();
 
-    const items = entries.map(async (entry) => {
-        const element = $(entry);
-        const newsTitle = element.find('a').text() ?? '';
-        const newsLink = detailUrl + element.find('a').attr('href');
+    const out = await pMap(
+        entries,
+        async (entry) => {
+            const element = $(entry);
+            const newsTitle = element.find('a').text();
+            const newsLink = detailUrl + element.find('a').attr('href');
 
-        const newsDetail = await cache.tryGet(newsLink, async () => {
-            const newsContent = await ofetch(newsLink);
-            const content = load(newsContent);
+            const newsDetail = await cache.tryGet(`uestc:gr:v3:${newsLink}`, async () => {
+                const newsContent = await ofetch(newsLink);
+                const content = load(newsContent);
 
-            const basicInfo = content('div.topic_detail_header').find('div.info').text();
-            const match = dateTimeRegex.exec(basicInfo);
+                const basicInfo = content('div.topic_detail_header').find('div.info').text();
+                const match = dateTimeRegex.exec(basicInfo);
+                const pubDate = match ? parseDate(match[1], 'YYYY-MM-DD HH:mm', true) : undefined;
 
-            return {
-                title: newsTitle,
-                link: newsLink,
-                pubDate: match ? timezone(parseDate(match[1]), +8) : null,
-                description: content('div.content').html(),
-            };
-        });
+                return {
+                    pubDate: pubDate && !Number.isNaN(pubDate.getTime()) ? timezone(pubDate, 8) : undefined,
+                    description: content('div.content').html(),
+                };
+            });
 
-        return newsDetail;
-    });
-
-    const out = await Promise.all(items);
+            return { title: newsTitle, link: newsLink, ...newsDetail };
+        },
+        { concurrency: 3 }
+    );
 
     return {
         title: `研究生院通知（${typeName}）`,
         link: baseUrl,
         description: `电子科技大学研究生院通知（${typeName}）`,
-        item: out as DataItem[],
+        item: out,
     };
 }

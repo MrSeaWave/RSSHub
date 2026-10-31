@@ -1,17 +1,17 @@
-import { Route } from '@/types';
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
     path: '/:category?',
-    name: '线板酷',
+    name: '线报',
     url: 'new.xianbao.fun',
     maintainers: ['nashi23'],
     handler,
     example: '/xianbao',
     parameters: { category: '类别id，默认为：latest' },
-    description: `
-| 分类         | id             |
+    description: `| 分类         | id             |
 | ------------ | -------------- |
 | 最新         | latest         |
 | 赚客吧       | zuankeba       |
@@ -26,8 +26,8 @@ export const route: Route = {
 | 小嘀咕       | xiaodigu       |
 | 葫芦侠       | huluxia        |
 | 小刀娱乐网   | xiadao         |
-| 技术QQ网     | qqjishu        |
-| YYOK大全     | yyok           |
+| 技术 QQ 网   | qqjishu        |
+| YYOK 大全    | yyok           |
 | 活动资讯网   | huodong        |
 | 免费赚钱中心 | mianfei        |
 | 一小时       | yixiaoshi      |
@@ -64,13 +64,16 @@ export const route: Route = {
 async function handler(ctx) {
     const categoryParam = ctx.req.param() || { category: 'latest' };
 
-    let urlPath = '';
+    let urlPath: string;
 
     const category = categoryParam.category || 'latest';
 
-    const cat = CATEGORIES.find((cat) => cat.id === category) || CATEGORIES.find((cat) => cat.id === 'latest');
-    const fullName = cat!.fullName;
-    const pushPath = cat!.pushPath;
+    const cat = CATEGORIES.find((cat) => cat.id === category);
+    if (!cat) {
+        throw new InvalidParameterError(`Unknown category "${category}". Check the route documentation for supported category IDs.`);
+    }
+    const fullName = cat.fullName;
+    const pushPath = cat.pushPath;
 
     if (category.endsWith('xiaoshi') || category.endsWith('tian')) {
         urlPath = `${category}-hot.html`;
@@ -89,7 +92,7 @@ async function handler(ctx) {
         parsedData = responseData;
     } else {
         const hotKey = Object.keys(responseData).find((key) => key.startsWith('remen'));
-        parsedData = responseData[hotKey];
+        parsedData = responseData[hotKey!];
     }
 
     const items = parsedData.map((item) => ({
@@ -102,7 +105,7 @@ async function handler(ctx) {
     }));
 
     return {
-        title: `线板酷-${fullName}`,
+        title: `线报酷-${fullName}`,
         link: `http://new.xianbao.fun/${urlPath}`,
         item: items,
     };

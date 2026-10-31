@@ -1,5 +1,6 @@
 import type { Data, Route } from '@/types';
-import { getPostItems, CategoryParam, CommonRouteProperties, CommonDataProperties } from './common';
+
+import { CategoryParam, CommonDataProperties, CommonRouteProperties, getPostItems } from './common';
 
 export const route: Route = {
     ...CommonRouteProperties,
@@ -15,14 +16,14 @@ export const route: Route = {
     parameters: {
         category: CategoryParam,
     },
-    handler: async (ctx) => {
+    handler: async (ctx): Promise<Data> => {
         const { category = '' } = ctx.req.param();
         const items = await getPostItems({ swimlane: 'CURATED', category: category === '' ? undefined : category });
         return {
             ...CommonDataProperties,
             title: `Voronoi Editor's Pick Posts${category ? ` - ${category}` : ''}`,
-            link: 'https://www.voronoiapp.com/editors-pick',
+            link: 'https://www.voronoiapp.com/posts/editors-pick',
             item: items,
-        } as Data;
+        };
     },
 };

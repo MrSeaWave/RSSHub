@@ -1,8 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
     path: '/news',
@@ -22,7 +25,7 @@ export const route: Route = {
             source: ['sakurazaka46.com/s/s46/news/list', 'sakurazaka46.com/'],
         },
     ],
-    name: 'Sakurazaka46 News 櫻坂 46 新闻',
+    name: '新闻',
     maintainers: ['nczitzk'],
     handler,
     url: 'sakurazaka46.com/s/s46/news/list',
@@ -40,21 +43,23 @@ async function handler(ctx) {
     const $ = load(response.data);
 
     let items = $('.com-news-part .box a')
-        .slice(0, ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 30)
+        .slice(0, getRouteLimit(ctx, 30))
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
+            const date = $item.find('.date').text();
 
             return {
-                title: item.find('.lead').text(),
-                link: `${rootUrl}${item.attr('href').split('?')[0]}`,
-                pubDate: parseDate(item.find('.date').text()),
+                title: $item.find('.lead').text(),
+                link: `${rootUrl}${$item.attr('href')!.split('?', 1)[0]}`,
+                pubDate: date ? parseDate(`${date.replaceAll('.', '-')}T00:00:00Z`) : undefined,
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
+    items = await pMap(
+        items,
+        (item) =>
+            cache.tryGet(item.link!, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,
@@ -65,8 +70,8 @@ async function handler(ctx) {
                 item.description = content('.article').html();
 
                 return item;
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
     return {

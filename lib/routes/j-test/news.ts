@@ -1,9 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
-import timezone from '@/utils/timezone';
+import { parseDateInTimezone } from '@/utils/parse-date-in-timezone';
 
 export const route: Route = {
     path: '/news',
@@ -34,9 +36,9 @@ async function handler() {
     const list = $('#content1 > .center > .col_box1 > .col_body1 > ul > li')
         .toArray()
         .map((item) => {
-            const [title, date] = $(item).text().trim().replaceAll(']', '').split(' [');
+            const [title, date] = $(item).text().trim().replaceAll(']', '').split(' [', 2);
             const link = new URL($(item).children('a').attr('href')!, baseUrl).href;
-            const pubDate = timezone(parseDate(date), +8);
+            const pubDate = date && Number.isFinite(parseDate(date).getTime()) ? parseDateInTimezone(date, 8) : undefined;
             return {
                 title,
                 link,
@@ -45,15 +47,17 @@ async function handler() {
             };
         });
 
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
+    const items = await pMap(
+        list,
+        async (item) => {
+            const description = await cache.tryGet(`j-test:news-body:${item.link}`, async () => {
                 const response = await ofetch(item.link);
                 const $ = load(response);
-                item.description = $('.content > table').html() ?? '';
-                return item;
-            })
-        )
+                return $('.content > table').html() ?? '';
+            });
+            return { ...item, description };
+        },
+        { concurrency: 3 }
     );
 
     return {

@@ -1,7 +1,10 @@
-import { Route } from '@/types';
 import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import got from '@/utils/got';
-import { baseUrl, cookieJar, getArticleList, getArticle } from './utils';
+
+import { baseUrl, cookieJar, getArticle, getArticleList } from './utils';
 
 export const route: Route = {
     path: '/highlight/:journal?',
@@ -18,16 +21,16 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['nature.com/:journal/articles', 'nature.com/:journal', 'nature.com/'],
-            target: '/highlight/:journal',
+            source: ['nature.com/:journal/articles', 'nature.com/'],
+            target: '/highlight/:journal?',
         },
     ],
     name: 'Research Highlight',
-    maintainers: [],
+    maintainers: ['y9c', 'TonyRL'],
     handler,
-    description: `:::warning
-  Only some journals are supported.
-  :::`,
+    description: `::: warning
+Only some journals are supported.
+:::`,
 };
 
 async function handler(ctx) {
@@ -39,10 +42,10 @@ async function handler(ctx) {
 
     let items = getArticleList($);
 
-    items = await Promise.all(items.map((item) => getArticle(item)));
+    items = await pMap(items, getArticle, { concurrency: 3 });
 
     return {
-        title: $('title').text().trim(),
+        title: $('title').text(),
         description: $('meta[name=description]').attr('content'),
         link: url,
         item: items,

@@ -1,9 +1,12 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import utils from './utils';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
+
+import utils from './utils';
 
 export const route: Route = {
     path: '/news/:lang?',
@@ -25,7 +28,7 @@ export const route: Route = {
         },
     ],
     name: 'Press Releases',
-    maintainers: ['linbuxiao, TonyRL'],
+    maintainers: ['linbuxiao', 'TonyRL'],
     handler,
 };
 
@@ -34,18 +37,18 @@ async function handler(ctx) {
     const res = await got.get(`${BASE_WITH_LANG}/press/index.html`);
     const $ = load(res.data);
 
-    const list = $('.pressItem.clearfix')
-        .map((_, e) => {
-            const c = load(e);
+    const list = $('.pressItem')
+        .toArray()
+        .map((e): DataItem => {
+            const c = $(e);
             return {
-                title: c('.hd a').text(),
-                link: `${utils.BASE_URL}${c('.hd a').attr('href')}`,
+                title: c.find('.hd').text(),
+                link: new URL(c.find('a').first().attr('href')!, utils.BASE_URL).href,
             };
-        })
-        .get();
+        });
     const items = await Promise.all(
         list.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: item.link,
@@ -54,9 +57,12 @@ async function handler(ctx) {
                 const c = load(detailResponse.data);
                 c('.btn_download').remove();
                 c('.col-3-wrap.clearfix.pressPhoto div').removeAttr('class');
-                const des = c('.pressContent.full').html();
-                const thumbs = c('.col-3-wrap.clearfix.pressPhoto').html() ?? '';
-                item.pubDate = parseDate(decodeURI(c('.date').text().trim()), ['YYYY年MM月DD日', 'YYYY年MM月D日', 'YYYY年M月DD日', 'YYYY年M月D日'], true);
+                const des = c('.pressContent').html();
+                const thumbs = c('.pressPhoto, .lightGallery').html() ?? '';
+                const pubDate = parseDate(c('h3').first().text().trim(), ['YYYY年MM月DD日', 'YYYY年MM月D日', 'YYYY年M月DD日', 'YYYY年M月D日', 'YYYY-MM-DD', 'YYYY-MM-D', 'YYYY-M-DD', 'YYYY-M-D'], true);
+                if (Number.isFinite(pubDate.getTime())) {
+                    item.pubDate = timezone(pubDate, 8);
+                }
                 item.description = des + thumbs;
                 return item;
             })

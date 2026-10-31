@@ -1,15 +1,29 @@
-import { Route, DataItem } from '@/types';
+import { type Cheerio, type CheerioAPI, load } from 'cheerio';
+import { type Element } from 'domhandler';
+import type { Context } from 'hono';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
+import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
-import { load, Cheerio, AnyNode } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
-import { Context } from 'hono';
-import cache from '@/utils/cache';
 
 interface Post extends DataItem {
     external: boolean;
 }
-
+class ArticleAccessError extends Error {}
+function requiresArticleAuthentication($: CheerioAPI) {
+    if ($('title').text() === '系统提示' && $('.prompt p').text().trim() === '暂无权限，请咨询管理员。') {
+        return true;
+    }
+    return (
+        !$('.v_news_content').length &&
+        $('script')
+            .toArray()
+            .some((element) => /^\s*window\.location\.href\s*=\s*['"]https:\/\/cas\.whu\.edu\.cn\/authserver\/login\?service=/.test($(element).text()))
+    );
+}
 const baseUrl = 'https://rsgis.whu.edu.cn';
 const categoryMap = {
     index: {
@@ -83,117 +97,135 @@ const categoryMap = {
         },
     },
 };
-
-/**
- * Check whether the link is external.
- *
- * @param link Post link
- * @returns Whether or not weixin post
- */
-function checkExternal(link: string): boolean {
-    const matchWeixin = link.match(/^((http:\/\/)|(https:\/\/))?([\dA-Za-z]([\dA-Za-z-]{0,61}[\dA-Za-z])?\.)+[A-Za-z]{2,6}(\/)/);
-    return !!matchWeixin?.length;
-}
-
 /**
  * Get information from a list of paired link and date.
  *
  * @param element
  * @returns A list of RSS meta node.
  */
-function parseListLinkDateItem(element: Cheerio<AnyNode>, currentUrl: string) {
-    const linkElement = element.find('a').first();
-    const title = linkElement.text();
+function parseListLinkDateItem(element: Cheerio<Element>, currentUrl: string) {
+    const linkElement = element.find('a');
+    const title = linkElement.attr('title') || linkElement.text();
     const href = linkElement.attr('href');
     if (href === undefined) {
         throw new Error('Cannot get link');
     }
-    const external = checkExternal(href);
-    const link = external ? href : new URL(href, currentUrl).href;
-    const pubDate = element.find('div.date1').first().text();
+    const articleUrl = new URL(href, currentUrl);
+    const external = articleUrl.hostname !== new URL(baseUrl).hostname;
+    const link = articleUrl.href;
+    const pubDate = element.find('div.date1').text();
     return {
         title,
         link,
-        pubDate: timezone(parseDate(pubDate, 'YYYY-MM-DD'), +8),
+        pubDate: parseCalendarDate(pubDate),
         description: title,
         external,
     };
 }
-
-async function getDetail(item: Post): Promise<DataItem | any> {
-    const link = item.link;
-    return link
-        ? await cache.tryGet(`whu:rsgis:${link}`, async () => {
-              if (item.external) {
-                  item.description = `<a href="${link}">阅读原文</a>`;
-              } else {
-                  const response = await ofetch(link);
-                  const $ = load(response);
-                  const title = $('div.content div.content_title h1').first().text();
-                  const content = $('div.content div.v_news_content').first().html();
-                  item.title = title;
-                  item.description = content || '';
-              }
-              return item;
-          })
-        : item;
+function parseCalendarDate(value: string | undefined) {
+    if (!value?.trim()) {
+        return;
+    }
+    const date = parseDate(value.trim(), 'YYYY-MM-DD', true);
+    return Number.isFinite(date.getTime()) ? timezone(date, 0) : undefined;
 }
-
+async function getDetail(item: Post): Promise<Post> {
+    const link = item.link;
+    if (!link) {
+        return item;
+    }
+    if (item.external) {
+        return { ...item, description: undefined };
+    }
+    try {
+        const detail = await cache.tryGet(`whu:rsgis:article:${link}`, async () => {
+            const response = await ofetch(link);
+            const $ = load(response);
+            if ($('title').text() === '用户验证' && $('body').text().includes('验证码')) {
+                throw new ArticleAccessError(`Article access verification required at ${link}`);
+            }
+            if (requiresArticleAuthentication($)) {
+                throw new ArticleAccessError(`Article access permission or authentication required at ${link}`);
+            }
+            const body = $('div.content div.v_news_content');
+            if (body.length !== 1) {
+                throw new Error(`Article body not found at ${link}`);
+            }
+            const category = $('meta[name="Keywords"]').attr('content')?.split(/\s+/).filter(Boolean);
+            return {
+                category: category?.length ? category : undefined,
+                title: $('div.content div.content_title h1').text(),
+                listTitle: item.title,
+                description: body.html(),
+            };
+        });
+        return { ...item, title: detail.listTitle === item.title ? detail.title || item.title : item.title, description: detail.description, category: detail.category };
+    } catch (error) {
+        if (error instanceof ArticleAccessError) {
+            return { ...item, description: undefined };
+        }
+        throw error;
+    }
+}
 /**
  * Process index type.
  */
-async function handleIndex(): Promise<Array<Post>> {
+async function handleIndex(): Promise<Post[]> {
     const url = `${baseUrl}/index.htm`;
     const response = await ofetch(url);
     const $ = load(response);
-    // 学院新闻
-    const xyxwList: Array<Post> = $('div.main1 > div.newspaper:nth-child(1) > div.newspaper_list > ul > li')
+    // School news
+    const xyxwList: Post[] = $('div.main1 > div.newspaper:nth-child(1) > div.newspaper_list > ul > li')
         .toArray()
         .map((item) => parseListLinkDateItem($(item), baseUrl));
-    // 通知公告
-    const tzggList: Array<Post> = $('div.main1 > div.newspaper:nth-child(2) > div.newspaper_list > ul > li')
+    // Notices
+    const tzggList: Post[] = $('div.main1 > div.newspaper:nth-child(2) > div.newspaper_list > ul > li')
         .toArray()
         .map((item) => parseListLinkDateItem($(item), baseUrl));
-    // 学术动态
-    const xsdtList: Array<Post> = $('div.main3 div.inner > div.newspaper:nth-child(1) > ul.newspaper_list2 > li:nth-child(1) > ul > li')
+    // Academic updates
+    const xsdtList: Post[] = $('div.main3 div.inner > div.newspaper:nth-child(1) > ul.newspaper_list2 > li:nth-child(1) > ul > li')
         .toArray()
         .map((item) => parseListLinkDateItem($(item), baseUrl));
-    // 学术进展
-    const xsjzList: Array<Post> = $('div.main3 div.inner > div.newspaper:nth-child(1) > ul.newspaper_list2 > li:nth-child(2) > ul > li')
+    // Academic progress
+    const xsjzList: Post[] = $('div.main3 div.inner > div.newspaper:nth-child(1) > ul.newspaper_list2 > li:nth-child(2) > ul > li')
         .toArray()
         .map((item) => parseListLinkDateItem($(item), baseUrl));
-    // 教学动态
-    const jxdtList: Array<Post> = $('div.main3 div.inner > div.newspaper:nth-child(2) > div.newspaper_list2 > ul > li')
+    // Teaching updates
+    const jxdtList: Post[] = $('div.main3 div.inner > div.newspaper:nth-child(2) > div.newspaper_list2 > ul > li')
         .toArray()
         .map((item) => parseListLinkDateItem($(item), baseUrl));
-    // 学工动态
-    const xgdtList: Array<Post> = $('div.main3 div.inner > div.newspaper:nth-child(3) > div.newspaper_list2 > ul > li')
+    // Student affairs updates
+    const xgdtList: Post[] = $('div.main3 div.inner > div.newspaper:nth-child(3) > div.newspaper_list2 > ul > li')
         .toArray()
         .map((item) => parseListLinkDateItem($(item), baseUrl));
-    // 组合所有新闻
-    const fullList = await Promise.all([...xyxwList, ...tzggList, ...xsdtList, ...xsjzList, ...jxdtList, ...xgdtList].map(async (item) => await getDetail(item)));
+    // Combine all first-page news groups.
+    const fullList = await unwrapFirstFailure(pMap([...xyxwList, ...tzggList, ...xsdtList, ...xsjzList, ...jxdtList, ...xgdtList], async (item) => await getDetail(item), { concurrency: 3, stopOnError: false }));
     return fullList;
 }
-
 /**
  * Process non-index types.
  *
  * @param type Level 1 type
  * @param sub Level 2 type
  */
-async function handlePostList(type: string, sub: string): Promise<Array<DataItem>> {
-    let urlList: Array<{ url: string; base: string }> = [];
+async function handlePostList(type: string, sub: string): Promise<DataItem[]> {
+    let urlList: Array<{
+        url: string;
+        base: string;
+    }> = [];
     const category = categoryMap[type];
     if (sub === 'all') {
         const subMap = category.sub;
-        urlList = Object.keys(subMap).map((key) => {
-            const subType = subMap[key];
+        urlList = Object.values<{
+            path: string;
+        }>(subMap).map((value) => {
+            const subtype = value;
             return {
-                url: `${baseUrl}/${category.path}/${subType.path}.htm`,
+                url: `${baseUrl}/${category.path}/${subtype.path}.htm`,
                 base: `${baseUrl}/${category.path}`,
             };
         });
-    } else if (sub in category.sub) {
+    } else if (Object.hasOwn(category.sub, sub)) {
         urlList.push({
             url: `${baseUrl}/${category.path}/${category.sub[sub].path}.htm`,
             base: `${baseUrl}/${category.path}`,
@@ -201,19 +233,22 @@ async function handlePostList(type: string, sub: string): Promise<Array<DataItem
     } else {
         throw new Error('No such sub type.');
     }
-    const urlPosts = await Promise.all(
-        urlList.map(async (url) => {
-            const response = await ofetch(url.url);
-            const $ = load(response);
-            return $('div.neiinner > div.nav_right > div.right_inner > div.list > ul > li')
-                .toArray()
-                .map((item) => parseListLinkDateItem($(item), url.base));
-        })
+    const urlPosts = await unwrapFirstFailure(
+        pMap(
+            urlList,
+            async (url) => {
+                const response = await ofetch(url.url);
+                const $ = load(response);
+                return $('div.neiinner > div.nav_right > div.right_inner > div.list > ul > li')
+                    .toArray()
+                    .map((item) => parseListLinkDateItem($(item), url.base));
+            },
+            { concurrency: 3, stopOnError: false }
+        )
     );
-    const fullList = await Promise.all(urlPosts.flat().map(async (item) => await getDetail(item)));
+    const fullList = await unwrapFirstFailure(pMap(urlPosts.flat(), async (item) => await getDetail(item), { concurrency: 3, stopOnError: false }));
     return fullList;
 }
-
 export const route: Route = {
     path: '/rsgis/:type/:sub?',
     categories: ['university'],
@@ -228,11 +263,9 @@ export const route: Route = {
             target: '/rsgis/index',
         },
     ],
-    name: '武汉大学遥感信息工程学院',
+    name: '遥感信息工程学院',
     maintainers: ['HPDell'],
-    description: `
-
-|  分类名  | \`type\` 值 |  子类名  | \`sub\` 值 |
+    description: `|  分类名  | \`type\` 值 |  子类名  | \`sub\` 值 |
 | :------: | :-------- | :------: | :------- |
 |   首页   | \`index\`   |          |          |
 | 学院新闻 | \`xyxw\`    |   全部   | \`all\`    |
@@ -249,11 +282,10 @@ export const route: Route = {
 |          |           | 学院通知 | \`xytz\`   |
 |          |           | 教学动态 | \`jxdt\`   |
 |          |           | 学术动态 | \`xsdt\`   |
-|          |           | 人才引进 | \`rcyj\`   |
-`,
+|          |           | 人才引进 | \`rcyj\`   |`,
     handler: async (ctx: Context) => {
         const { type = 'index', sub = 'all' } = ctx.req.param();
-        let itemList: Array<DataItem> = [];
+        let itemList: DataItem[];
         switch (type) {
             case 'index':
                 itemList = await handleIndex();
@@ -266,7 +298,6 @@ export const route: Route = {
             default:
                 throw new Error('No such type');
         }
-
         return {
             title: `${categoryMap[type].name} - 武汉大学遥感信息工程学院`,
             link: baseUrl,
@@ -275,3 +306,10 @@ export const route: Route = {
         };
     },
 };
+async function unwrapFirstFailure<T>(promise: Promise<T>): Promise<T> {
+    try {
+        return await promise;
+    } catch (error) {
+        throw error instanceof AggregateError ? error.errors[0] : error;
+    }
+}

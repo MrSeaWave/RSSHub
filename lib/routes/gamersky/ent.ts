@@ -1,6 +1,8 @@
-import type { Route } from '@/types';
 import type { Context } from 'hono';
-import { getArticleList, parseArticleList, getArticle, mdTableBuilder } from './utils';
+
+import type { Route } from '@/types';
+
+import { getArticleList, getArticles, mdTableBuilder, parseArticleList } from './utils';
 
 const idNameMap = new Map([
     ['all', { title: '热点图文', suffix: 'ent', nodeId: '20107' }],
@@ -17,7 +19,7 @@ export const route: Route = {
     categories: ['game'],
     example: '/gamersky/ent/xz',
     parameters: {
-        type: '分类类型，留空为 `all`',
+        category: '分类类型，留空为 `all`',
     },
     features: {
         requireConfig: false,
@@ -27,14 +29,14 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    radar: Object.entries(idNameMap).map(([type, { title, suffix }]) => ({
+    radar: Array.from(idNameMap, ([type, { title, suffix }]) => ({
         title,
         source: [`www.gamersky.com/${suffix}`],
         target: `/ent/${type}`,
     })),
     name: '娱乐',
     maintainers: ['LogicJake'],
-    description: mdTableBuilder(Object.entries(idNameMap).map(([type, { title, nodeId }]) => ({ type, name: title, nodeId }))),
+    description: mdTableBuilder(Array.from(idNameMap, ([type, { title, nodeId }]) => ({ type, name: title, nodeId }))),
     handler,
 };
 
@@ -48,7 +50,7 @@ async function handler(ctx: Context) {
 
     const response = await getArticleList(idName.nodeId);
     const list = parseArticleList(response);
-    const fullTextList = await Promise.all(list.map((item) => getArticle(item)));
+    const fullTextList = await getArticles(list);
     return {
         title: `${idName.title} - 游民娱乐`,
         link: `https://www.gamersky.com/${idName.suffix}`,

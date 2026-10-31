@@ -1,15 +1,17 @@
-import { type CheerioAPI, load } from 'cheerio';
-import { type Context } from 'hono';
+import type { CheerioAPI } from 'cheerio';
+import { load } from 'cheerio';
+import type { Context } from 'hono';
 
-import { type DataItem, type Route, type Data, ViewType } from '@/types';
-
+import type { Data, DataItem, Language, Route } from '@/types';
+import { ViewType } from '@/types';
 import ofetch from '@/utils/ofetch';
+import { getRouteLimit } from '@/utils/route-limit';
 
-import { rootUrl, processItems } from './util';
+import { processItems, rootUrl } from './util';
 
 export const handler = async (ctx: Context): Promise<Data> => {
     const { filter } = ctx.req.param();
-    const limit: number = Number.parseInt(ctx.req.query('limit') ?? '30', 10);
+    const limit = getRouteLimit(ctx, 30);
 
     const targetUrl: string = new URL(`/${filter ? 'home/' : ''}explore/${filter ?? ''}`, rootUrl).href;
 
@@ -21,7 +23,7 @@ export const handler = async (ctx: Context): Promise<Data> => {
 
     $('div.pagination').remove();
 
-    const author = $('meta[name="keywords"]').prop('content').split(/,/)[0];
+    const author = $('meta[name="keywords"]').prop('content')?.split(/,/, 1)[0];
     const feedImage = $('div.aw-logo img').prop('src');
 
     return {
@@ -33,10 +35,9 @@ export const handler = async (ctx: Context): Promise<Data> => {
         description: $('meta[name="description"]').prop('content'),
         link: targetUrl,
         item: items,
-        allowEmpty: true,
         image: feedImage,
         author,
-        language,
+        language: language as Language,
         id: targetUrl,
     };
 };
@@ -49,12 +50,11 @@ export const route: Route = {
     handler,
     example: '/jisilu/explore',
     parameters: {
-        category: '过滤器，默认为空，可在对应页 URL 中找到',
+        filter: '过滤器，默认为空，可在对应页 URL 中找到',
     },
-    description: `:::tip
-若订阅 [债券/可转债 - 热门 - 30天](https://www.jisilu.cn/home/explore/category-4__sort_type-hot__day-30)，网址为 \`https://www.jisilu.cn/home/explore/category-4__sort_type-hot__day-30\`，请截取 \`https://www.jisilu.cn/home/explore/\` 到末尾的部分 \`category-4__sort_type-hot__day-30\` 作为 \`filter\` 参数填入，此时目标路由为 [\`/jisilu/explore/category-4__sort_type-hot__day-30\`](https://rsshub.app/jisilu/explore/category-4__sort_type-hot__day-30)。
-:::
-    `,
+    description: `::: tip
+若订阅 [债券 / 可转债 - 热门 - 30 天](https://www.jisilu.cn/home/explore/category-4__sort_type-hot__day-30)，网址为 \`https://www.jisilu.cn/home/explore/category-4__sort_type-hot__day-30\`，请截取 \`https://www.jisilu.cn/home/explore/\` 到末尾的部分 \`category-4__sort_type-hot__day-30\` 作为 \`filter\` 参数填入，此时目标路由为 [\`/jisilu/explore/category-4__sort_type-hot__day-30\`](https://rsshub.app/jisilu/explore/category-4__sort_type-hot__day-30)。
+:::`,
     categories: ['finance'],
     features: {
         requireConfig: false,
@@ -67,12 +67,12 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['www.jisilu.cn/home/explore/:filter', 'www.jisilu.cn/home/explore', 'www.jisilu.cn/explore'],
-            target: (params) => {
-                const filter = params.filter;
-
-                return `/jisilu/explore${filter ? `/${filter}` : ''}`;
-            },
+            source: ['www.jisilu.cn/home/explore/:filter'],
+            target: '/explore/:filter',
+        },
+        {
+            source: ['www.jisilu.cn/home/explore', 'www.jisilu.cn/explore'],
+            target: '/explore',
         },
     ],
     view: ViewType.Articles,

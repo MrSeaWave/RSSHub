@@ -1,5 +1,6 @@
-import { Route } from '@/types';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
 import ofetch from '@/utils/ofetch';
 
 export const route: Route = {
@@ -16,6 +17,9 @@ export const route: Route = {
     name: '视频',
     maintainers: ['fang63625'],
     handler,
+    features: {
+        nsfw: true,
+    },
 };
 
 async function handler(ctx) {
@@ -26,7 +30,7 @@ async function handler(ctx) {
     const response = await ofetch(url);
     const $ = load(response);
 
-    const title = $('.title.scookie').text().trim();
+    const title = $('.title.scookie').text();
     const image = $('.vodlist_thumb.lazyload').attr('data-original');
     const items = $('.content_playlist.clearfix a')
         .toArray()

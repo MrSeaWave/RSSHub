@@ -1,0 +1,256 @@
+import { load } from 'cheerio';
+import dayjs from 'dayjs';
+import advancedFormat from 'dayjs/plugin/advancedFormat.js';
+import timezone from 'dayjs/plugin/timezone.js';
+import utc from 'dayjs/plugin/utc.js';
+import { raw } from 'hono/html';
+import { jsx } from 'hono/jsx';
+import { renderToString } from 'hono/jsx/dom/server';
+import { FetchError } from 'ofetch';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+
+export const route: Route = {
+    path: '/app/:category{.+}?',
+    categories: ['traditional-media'],
+    example: '/washingtonpost/app/national',
+    parameters: {
+        category: 'Category from the path of the URL of the corresponding site, see below',
+    },
+    features: {
+        requirePuppeteer: false,
+        antiCrawler: false,
+        supportBT: false,
+        supportPodcast: true,
+        supportScihub: false,
+    },
+    name: 'App',
+    maintainers: ['quiniapiezoelectricity'],
+    radar: [
+        {
+            source: ['www.washingtonpost.com/:category'],
+            target: '/app/:category',
+        },
+    ],
+    handler,
+    description: `::: tip
+For example, the category for <https://www.washingtonpost.com/national/investigations> would be /national/investigations.
+:::`,
+};
+
+function handleDuplicates(array) {
+    const objects: Record<string, DataItem> = {};
+    for (const obj of array) {
+        const existing = objects[obj.id];
+        objects[obj.id] = existing ? Object.assign(existing, obj) : obj;
+    }
+    return Object.values(objects);
+}
+
+function parseSourceTime(value?: string | number | null) {
+    if ((typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && !value.trim())) {
+        return;
+    }
+    const date = parseDate(value);
+    return Number.isFinite(date.getTime()) ? date : undefined;
+}
+
+async function handler(ctx) {
+    const category = ctx.req.param('category') ?? '';
+    const headers = {
+        Accept: '*/*',
+        Connection: 'keep-alive',
+        'User-Agent': 'Classic/6.70.0',
+    };
+    dayjs.extend(utc);
+    dayjs.extend(timezone);
+    dayjs.extend(advancedFormat);
+
+    const url = `https://jsonapp1.washingtonpost.com/fusion_prod/v2/${category}`;
+    const response = await got.get(url, { headers });
+    const title = response.data.tracking.page_title.includes('Washington Post') ? response.data.tracking.page_title : `The Washington Post - ${response.data.tracking.page_title}`;
+    const link = 'https://washingtonpost.com' + response.data.tracking.page_path;
+    const mains = response.data.regions[0].items.filter((item) => item.items);
+    const list = mains.flatMap((main) =>
+        main.items[0].items
+            .filter((item) => item.is_from_feed === true)
+            .map((item) => {
+                const object: DataItem = {
+                    id: item.id,
+                    title: item.headline.text,
+                    link: item.link.url,
+                    pubDate: parseSourceTime(item.link.display_date),
+                    updated: parseSourceTime(item.link.last_modified),
+                };
+                if (item.blurbs?.items[0]?.text) {
+                    object.description = item.blurbs?.items[0]?.text;
+                }
+                return object;
+            })
+    );
+    const feed = handleDuplicates(list);
+    const items = await pMap(
+        feed,
+        async (item) => {
+            const itemLink = item.link;
+            if (!itemLink) {
+                throw new Error(`Washington Post item ${item.id} has no link`);
+            }
+            const details = await cache.tryGet<Partial<Pick<DataItem, 'title' | 'author' | 'description' | 'category' | 'enclosure_type' | 'enclosure_url' | 'itunes_duration' | 'itunes_item_image'>>>(
+                `washingtonpost:detail-with-category:${itemLink}`,
+                async () => {
+                    let response;
+                    try {
+                        response = await got(`https://rainbowapi-a.wpdigital.net/rainbow-data-service/rainbow/content-by-url.json?followLinks=false&url=${itemLink}`, { headers });
+                    } catch (error) {
+                        if (error instanceof FetchError && error.statusCode === 415) {
+                            // Interactive or podcast contents will return 415 Unsupported Media Type. Keep calm and carry on.
+                            return {};
+                        }
+                        throw error;
+                    }
+                    const audio = response.data.items.find((entry) => entry.type === 'audio' && entry.rawUrl);
+                    return {
+                        title: response.data.title,
+                        category: response.data.items.filter((entry) => entry.type === 'kicker' && entry.content).map((entry) => entry.content),
+                        author:
+                            response.data.items
+                                .filter((entry) => entry.type === 'byline')
+                                ?.flatMap((entry) => entry.authors?.map((author) => author.name) ?? [])
+                                ?.join(', ') || undefined,
+                        description: renderDescription(response.data.items),
+                        enclosure_url: audio?.rawUrl,
+                        enclosure_type: audio ? 'audio/mpeg' : undefined,
+                        itunes_duration: audio?.duration ? Math.floor(audio.duration / 1000) : undefined,
+                        itunes_item_image: audio?.image?.imageURL,
+                    };
+                }
+            );
+            return { ...item, ...details, title: details.title ?? item.title, description: details.description ?? item.description };
+        },
+        { concurrency: 3 }
+    );
+
+    return {
+        title,
+        link,
+        item: items,
+    };
+}
+
+const renderDescription = (content): string => {
+    const html = renderToString(
+        <>
+            {content?.map((entry, index) => {
+                if (!entry) {
+                    return null;
+                }
+
+                if (entry.type === 'title' && entry.subtype !== 'h1') {
+                    return jsx(entry.subtype || 'h2', { key: `title-${index}` }, entry.mime === 'text/html' ? raw(entry.content) : entry.content);
+                }
+
+                if (entry.type === 'sanitized_html') {
+                    if (!entry.subtype || entry.subtype === 'paragraph') {
+                        return (
+                            <p key={`paragraph-${index}`}>
+                                {entry.mime === 'text/html' ? raw(entry.content) : entry.content}
+                                {entry.oembed ? raw(entry.oembed) : null}
+                            </p>
+                        );
+                    }
+
+                    if (entry.subtype === 'subhead') {
+                        return jsx(`h${entry.subhead_level || 4}`, { key: `subhead-${index}` }, entry.mime === 'text/html' ? raw(entry.content) : entry.content, entry.oembed ? raw(entry.oembed) : null);
+                    }
+                } else if (entry.type === 'deck') {
+                    return (
+                        <blockquote key={`deck-${index}`}>
+                            <p>{entry.mime === 'text/html' ? raw(entry.content) : entry.content}</p>
+                        </blockquote>
+                    );
+                }
+
+                if (entry.type === 'correction') {
+                    return <p key={`correction-${index}`}>{entry.mime === 'text/html' ? raw(entry.content) : entry.content}</p>;
+                }
+
+                if (entry.type === 'web_embed' && entry.url) {
+                    return <iframe key={`embed-${index}`} src={entry.url} title={entry.subtype || 'Article embed'} />;
+                }
+
+                if (entry.type === 'audio' && entry.rawUrl) {
+                    return <audio key={`audio-${index}`} controls src={entry.rawUrl} />;
+                }
+
+                if (entry.type === 'image') {
+                    return (
+                        <figure key={`image-${index}`}>
+                            <img src={entry.imageURL} alt={entry.blurb} />
+                            <figcaption>{entry.fullcaption}</figcaption>
+                        </figure>
+                    );
+                }
+
+                if (entry.type === 'video') {
+                    if (entry.content?.html) {
+                        return <span key={`video-html-${index}`}>{raw(entry.content.html)}</span>;
+                    }
+
+                    if (entry.mediaURL) {
+                        return (
+                            <figure key={`video-${index}`}>
+                                <video controls poster={entry.imageURL}>
+                                    <source src={entry.mediaURL} />
+                                </video>
+                                {entry.fullcaption ? <figcaption>{entry.fullcaption}</figcaption> : null}
+                            </figure>
+                        );
+                    }
+                } else if (entry.type === 'list') {
+                    const ListTag = entry.subtype === 'ordered' ? 'ol' : 'ul';
+                    return (
+                        <ListTag key={`list-${index}`}>
+                            {(entry.content ?? []).map((listItem, itemIndex) => (
+                                <li key={`list-${index}-${itemIndex}`}>{entry.mime === 'text/html' ? raw(listItem) : listItem}</li>
+                            ))}
+                        </ListTag>
+                    );
+                }
+
+                if (entry.type === 'divider') {
+                    return (
+                        <span key={`divider-${index}`}>
+                            <br />
+                            <hr />
+                            <br />
+                        </span>
+                    );
+                }
+
+                if (entry.type === 'byline' && (entry.subtype === 'live-update' || entry.subtype === 'live-reporter-insight')) {
+                    return (
+                        <p key={`byline-${index}`}>
+                            <i>{entry.mime === 'text/html' ? raw(entry.content) : entry.content}</i>
+                        </p>
+                    );
+                }
+
+                if (entry.type === 'date' && entry.subtype === 'live-update') {
+                    return entry.content ? <span key={`date-${index}`}>{dayjs.tz(entry.content, 'America/New_York').locale('en').format('dddd, MMMM D, YYYY h:mm A z')}</span> : null;
+                }
+
+                return null;
+            })}
+        </>
+    );
+    const $ = load(html, {}, false);
+    $('a[href^="FTS_"]').each((_, element) => {
+        $(element).replaceWith($(element).contents());
+    });
+    return $.html();
+};

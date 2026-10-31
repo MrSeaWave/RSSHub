@@ -1,4 +1,5 @@
-import type { Data, Route } from '@/types';
+import type { Route } from '@/types';
+
 import { CommonDataProperties, CommonRouteProperties, getPostItems } from './common';
 
 export const route: Route = {
@@ -8,12 +9,7 @@ export const route: Route = {
     radar: [
         {
             source: ['www.voronoiapp.com/explore'],
-            // 新版本中貌似不再支持 function 形式的 target
-            target: (_, url) => {
-                const parsedURL = new URL(url);
-                const keyword = parsedURL.searchParams.get('search');
-                return `/voronoiapp/search/${keyword}`;
-            },
+            target: '/search/:keyword',
         },
     ],
     example: '/voronoiapp/search/china',
@@ -28,6 +24,6 @@ export const route: Route = {
             title: `Voronoi Posts for "${keyword}"`,
             link: `https://www.voronoiapp.com/explore?search=${encodeURIComponent(keyword)}`,
             item: items,
-        } as Data;
+        };
     },
 };

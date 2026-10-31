@@ -1,37 +1,39 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
 
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
 
 export const handler = async (ctx) => {
     const { category = 'kjzx/tzgg' } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 20;
+    const limit = getRouteLimit(ctx, 20);
 
     const rootUrl = 'https://kjt.ah.gov.cn';
-    const currentUrl = new URL(`${category.replace(/\/$/, '').replace(/\/index\.html$/, '')}/`, rootUrl).href;
+    const currentUrl = `${rootUrl}/${category.replace(/\/$/, '').replace(/\/index\.html$/, '')}/`;
 
     const { data: response } = await got(currentUrl);
 
     const $ = load(response);
 
-    const language = $('html').prop('lang');
+    const language = $('html').prop('lang') as Language;
 
     let items = $('ul.doc_list li')
         .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
-            const a = item.find('a');
+            const a = $item.find('a');
 
             const title = a.prop('title') ?? a.text();
+            const pubDate = $item.find('span.date').text();
 
             return {
                 title,
-                pubDate: parseDate(item.find('span.date').text()),
+                pubDate: pubDate ? timezone(parseDate(pubDate), 8) : undefined,
                 link: a.prop('href'),
                 language,
             };
@@ -39,16 +41,19 @@ export const handler = async (ctx) => {
 
     items = await Promise.all(
         items.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 const { data: detailResponse } = await got(item.link);
 
                 const $$ = load(detailResponse);
 
                 const description = $$('div.wzcon').html();
 
-                item.title = $$('meta[name="ArticleTitle"]').prop('content');
+                item.title = $$('meta[name="ArticleTitle"]').prop('content') || item.title;
                 item.description = description;
-                item.pubDate = timezone(parseDate($$('meta[name="PubDate"]').prop('content')), +8);
+                const pubDate = $$('meta[name="PubDate"]').prop('content');
+                if (pubDate) {
+                    item.pubDate = timezone(parseDate(pubDate), 8);
+                }
                 item.category = [
                     ...new Set([
                         $$('meta[name="ColumnName"]').prop('content'),
@@ -63,7 +68,8 @@ export const handler = async (ctx) => {
                     html: description,
                     text: $$('div.wzcon').text(),
                 };
-                item.updated = timezone(parseDate($$('meta[name="HtmlGenerateTime"]').prop('content')), +8);
+                const updated = $$('meta[name="HtmlGenerateTime"]').prop('content');
+                item.updated = updated ? timezone(parseDate(updated), 8) : undefined;
                 item.language = language;
 
                 return item;
@@ -79,7 +85,6 @@ export const handler = async (ctx) => {
         description: $('meta[name="ColumnDescription"]').prop('content'),
         link: currentUrl,
         item: items,
-        allowEmpty: true,
         image,
         author,
         language,
@@ -87,44 +92,42 @@ export const handler = async (ctx) => {
 };
 
 export const route: Route = {
-    path: '/ah/kjt/:category{.+}?',
-    name: '安徽省科学技术厅',
+    path: '/kjt/:category{.+}?',
+    name: '科学技术厅',
     url: 'kjt.ah.gov.cn',
     maintainers: ['nczitzk'],
     handler,
     example: '/gov/ah/kjt',
     parameters: { category: '分类，默认为 `kjzx/tzgg`，即通知公告，可在对应分类页 URL 中找到' },
-    description: `:::tip
-  若订阅 [通知公告](https://kjt.ah.gov.cn/kjzx/tzgg/)，网址为 \`https://kjt.ah.gov.cn/kjzx/tzgg/\`。截取 \`https://kjt.ah.gov.cn/\` 到末尾 \`/\` 的部分 \`\` 作为参数填入，此时路由为 [\`/gov/ah/kjt/kjzx/tzgg\`](https://rsshub.app/gov/ah/kjt/kjzx/tzgg)。
-  :::
+    description: `::: tip
+若订阅 [通知公告](https://kjt.ah.gov.cn/kjzx/tzgg/)，网址为 \`https://kjt.ah.gov.cn/kjzx/tzgg/\`。将路径部分 \`kjzx/tzgg\` 作为分类参数填入，此时路由为 [\`/gov/ah/kjt/kjzx/tzgg\`](https://rsshub.app/gov/ah/kjt/kjzx/tzgg)。
+:::
 
-  #### [科技资讯](https://kjt.ah.gov.cn/kjzx/index.html)
+#### [科技资讯](https://kjt.ah.gov.cn/kjzx/index.html)
 
-  | [通知公告](https://kjt.ah.gov.cn/kjzx/tzgg/index.html) | [工作动态](https://kjt.ah.gov.cn/kjzx/gzdt/index.html) | [基层科技](https://kjt.ah.gov.cn/kjzx/jckj/index.html) | [媒体聚焦](https://kjt.ah.gov.cn/kjzx/mtjj/index.html) |
-  | ------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------ |
-  | [kjzx/tzgg](https://rsshub.app/gov/ah/kjt/kjzx/tzgg)   | [kjzx/gzdt](https://rsshub.app/gov/ah/kjt/kjzx/gzdt)   | [kjzx/jckj](https://rsshub.app/gov/ah/kjt/kjzx/jckj)   | [kjzx/mtjj](https://rsshub.app/gov/ah/kjt/kjzx/mtjj)   |
-  
-  | [重要转载](https://kjt.ah.gov.cn/kjzx/zyzz/index.html) | [图片视频](https://kjt.ah.gov.cn/kjzx/tpsp/index.html) |
-  | ------------------------------------------------------ | ------------------------------------------------------ |
-  | [kjzx/zyzz](https://rsshub.app/gov/ah/kjt/kjzx/zyzz)   | [kjzx/tpsp](https://rsshub.app/gov/ah/kjt/kjzx/tpsp)   |
+| [通知公告](https://kjt.ah.gov.cn/kjzx/tzgg/index.html) | [工作动态](https://kjt.ah.gov.cn/kjzx/gzdt/index.html) | [基层科技](https://kjt.ah.gov.cn/kjzx/jckj/index.html) | [媒体聚焦](https://kjt.ah.gov.cn/kjzx/mtjj/index.html) |
+| ------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------ |
+| [kjzx/tzgg](https://rsshub.app/gov/ah/kjt/kjzx/tzgg)   | [kjzx/gzdt](https://rsshub.app/gov/ah/kjt/kjzx/gzdt)   | [kjzx/jckj](https://rsshub.app/gov/ah/kjt/kjzx/jckj)   | [kjzx/mtjj](https://rsshub.app/gov/ah/kjt/kjzx/mtjj)   |
 
-  #### [科技统计](https://kjt.ah.gov.cn/kjzy/kjtj/index.html)
+| [重要转载](https://kjt.ah.gov.cn/kjzx/zyzz/index.html) | [图片视频](https://kjt.ah.gov.cn/kjzx/tpsp/index.html) |
+| ------------------------------------------------------ | ------------------------------------------------------ |
+| [kjzx/zyzz](https://rsshub.app/gov/ah/kjt/kjzx/zyzz)   | [kjzx/tpsp](https://rsshub.app/gov/ah/kjt/kjzx/tpsp)   |
 
-  | [技术市场交易](https://kjt.ah.gov.cn/kjzy/kjtj/jsscjy/index.html)  | [科技成果公报](https://kjt.ah.gov.cn/kjzy/kjtj/kjcggb/index.html)  | [孵化载体发展](https://kjt.ah.gov.cn/kjzy/kjtj/cyfhfz/index.html)  |
-  | ------------------------------------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
-  | [kjzy/kjtj/jsscjy](https://rsshub.app/gov/ah/kjt/kjzy/kjtj/jsscjy) | [kjzy/kjtj/kjcggb](https://rsshub.app/gov/ah/kjt/kjzy/kjtj/kjcggb) | [kjzy/kjtj/cyfhfz](https://rsshub.app/gov/ah/kjt/kjzy/kjtj/cyfhfz) |
+#### [科技统计](https://kjt.ah.gov.cn/kjzy/kjtj/index.html)
 
-  #### [科技数据](https://kjt.ah.gov.cn/kjzy/kjsj/index.html)
+| [技术市场交易](https://kjt.ah.gov.cn/kjzy/kjtj/jsscjy/index.html)  | [科技成果公报](https://kjt.ah.gov.cn/kjzy/kjtj/kjcggb/index.html)  | [孵化载体发展](https://kjt.ah.gov.cn/kjzy/kjtj/cyfhfz/index.html)  |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| [kjzy/kjtj/jsscjy](https://rsshub.app/gov/ah/kjt/kjzy/kjtj/jsscjy) | [kjzy/kjtj/kjcggb](https://rsshub.app/gov/ah/kjt/kjzy/kjtj/kjcggb) | [kjzy/kjtj/cyfhfz](https://rsshub.app/gov/ah/kjt/kjzy/kjtj/cyfhfz) |
 
-  | [创新企业](https://kjt.ah.gov.cn/kjzy/kjsj/cxqy/index.html)    | [创新项目](https://kjt.ah.gov.cn/kjzy/kjsj/cxxm/index.html)    | [创新成果](https://kjt.ah.gov.cn/kjzy/kjsj/cxcg/index.html)    | [转化基金入库项目](https://kjt.ah.gov.cn/kjzy/kjsj/zhjjrkxm/index.html) |
-  | -------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------- |
-  | [kjzy/kjsj/cxqy](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/cxqy) | [kjzy/kjsj/cxxm](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/cxxm) | [kjzy/kjsj/cxcg](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/cxcg) | [kjzy/kjsj/zhjjrkxm](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/zhjjrkxm)  |
+#### [科技数据](https://kjt.ah.gov.cn/kjzy/kjsj/index.html)
 
-  | [创新平台](https://kjt.ah.gov.cn/kjzy/kjsj/cxpt/index.html)    | [创新园区](https://kjt.ah.gov.cn/kjzy/kjsj/cxyq/index.html)    | [创新许可](https://kjt.ah.gov.cn/kjzy/kjsj/cxxk/index.html)    |
-  | -------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------- |
-  | [kjzy/kjsj/cxpt](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/cxpt) | [kjzy/kjsj/cxyq](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/cxyq) | [kjzy/kjsj/cxxk](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/cxxk) |
+| [创新企业](https://kjt.ah.gov.cn/kjzy/kjsj/cxqy/index.html)    | [创新项目](https://kjt.ah.gov.cn/kjzy/kjsj/cxxm/index.html)    | [创新成果](https://kjt.ah.gov.cn/kjzy/kjsj/cxcg/index.html)    | [转化基金入库项目](https://kjt.ah.gov.cn/kjzy/kjsj/zhjjrkxm/index.html) |
+| -------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| [kjzy/kjsj/cxqy](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/cxqy) | [kjzy/kjsj/cxxm](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/cxxm) | [kjzy/kjsj/cxcg](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/cxcg) | [kjzy/kjsj/zhjjrkxm](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/zhjjrkxm)  |
 
-  `,
+| [创新平台](https://kjt.ah.gov.cn/kjzy/kjsj/cxpt/index.html)    | [创新园区](https://kjt.ah.gov.cn/kjzy/kjsj/cxyq/index.html)    | [创新许可](https://kjt.ah.gov.cn/kjzy/kjsj/cxxk/index.html)    |
+| -------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------- |
+| [kjzy/kjsj/cxpt](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/cxpt) | [kjzy/kjsj/cxyq](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/cxyq) | [kjzy/kjsj/cxxk](https://rsshub.app/gov/ah/kjt/kjzy/kjsj/cxxk) |`,
     categories: ['government'],
 
     features: {
@@ -138,92 +141,88 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['kjt.ah.gov.cn/:category'],
-            target: (params) => {
-                const category = params.category;
-
-                return `/gov/ah/kjt${category ? `/${category}` : ''}`;
-            },
+            source: ['kjt.ah.gov.cn/'],
+            target: '/kjt',
         },
         {
             title: '科技资讯 - 通知公告',
-            source: ['kjt.ah.gov.cn/kjzx/tzgg/index.html'],
-            target: '/ah/kjt/kjzx/tzgg',
+            source: ['kjt.ah.gov.cn/kjzx/tzgg/index.html', 'kjt.ah.gov.cn/kjzx/tzgg/'],
+            target: '/kjt/kjzx/tzgg',
         },
         {
             title: '科技资讯 - 工作动态',
-            source: ['kjt.ah.gov.cn/kjzx/gzdt/index.html'],
-            target: '/ah/kjt/kjzx/gzdt',
+            source: ['kjt.ah.gov.cn/kjzx/gzdt/index.html', 'kjt.ah.gov.cn/kjzx/gzdt/'],
+            target: '/kjt/kjzx/gzdt',
         },
         {
             title: '科技资讯 - 基层科技',
-            source: ['kjt.ah.gov.cn/kjzx/jckj/index.html'],
-            target: '/ah/kjt/kjzx/jckj',
+            source: ['kjt.ah.gov.cn/kjzx/jckj/index.html', 'kjt.ah.gov.cn/kjzx/jckj/'],
+            target: '/kjt/kjzx/jckj',
         },
         {
             title: '科技资讯 - 媒体聚焦',
-            source: ['kjt.ah.gov.cn/kjzx/mtjj/index.html'],
-            target: '/ah/kjt/kjzx/mtjj',
+            source: ['kjt.ah.gov.cn/kjzx/mtjj/index.html', 'kjt.ah.gov.cn/kjzx/mtjj/'],
+            target: '/kjt/kjzx/mtjj',
         },
         {
             title: '科技资讯 - 重要转载',
-            source: ['kjt.ah.gov.cn/kjzx/zyzz/index.html'],
-            target: '/ah/kjt/kjzx/zyzz',
+            source: ['kjt.ah.gov.cn/kjzx/zyzz/index.html', 'kjt.ah.gov.cn/kjzx/zyzz/'],
+            target: '/kjt/kjzx/zyzz',
         },
         {
             title: '科技资讯 - 图片视频',
-            source: ['kjt.ah.gov.cn/kjzx/tpsp/index.html'],
-            target: '/ah/kjt/kjzx/tpsp',
+            source: ['kjt.ah.gov.cn/kjzx/tpsp/index.html', 'kjt.ah.gov.cn/kjzx/tpsp/'],
+            target: '/kjt/kjzx/tpsp',
         },
         {
             title: '科技统计 - 技术市场交易',
-            source: ['kjt.ah.gov.cn/kjzy/kjtj/jsscjy/index.html'],
-            target: '/ah/kjt/kjzy/kjtj/jsscjy',
+            source: ['kjt.ah.gov.cn/kjzy/kjtj/jsscjy/index.html', 'kjt.ah.gov.cn/kjzy/kjtj/jsscjy/'],
+            target: '/kjt/kjzy/kjtj/jsscjy',
         },
         {
             title: '科技统计 - 科技成果公报',
-            source: ['kjt.ah.gov.cn/kjzy/kjtj/kjcggb/index.html'],
-            target: '/ah/kjt/kjzy/kjtj/kjcggb',
+            source: ['kjt.ah.gov.cn/kjzy/kjtj/kjcggb/index.html', 'kjt.ah.gov.cn/kjzy/kjtj/kjcggb/'],
+            target: '/kjt/kjzy/kjtj/kjcggb',
         },
         {
             title: '科技统计 - 孵化载体发展',
-            source: ['kjt.ah.gov.cn/kjzy/kjtj/cyfhfz/index.html'],
-            target: '/ah/kjt/kjzy/kjtj/cyfhfz',
+            source: ['kjt.ah.gov.cn/kjzy/kjtj/cyfhfz/index.html', 'kjt.ah.gov.cn/kjzy/kjtj/cyfhfz/'],
+            target: '/kjt/kjzy/kjtj/cyfhfz',
         },
         {
             title: '科技数据 - 创新企业',
-            source: ['kjt.ah.gov.cn/kjzy/kjsj/cxqy/index.html'],
-            target: '/ah/kjt/kjzy/kjsj/cxqy',
+            source: ['kjt.ah.gov.cn/kjzy/kjsj/cxqy/index.html', 'kjt.ah.gov.cn/kjzy/kjsj/cxqy/'],
+            target: '/kjt/kjzy/kjsj/cxqy',
         },
         {
             title: '科技数据 - 创新项目',
-            source: ['kjt.ah.gov.cn/kjzy/kjsj/cxxm/index.html'],
-            target: '/ah/kjt/kjzy/kjsj/cxxm',
+            source: ['kjt.ah.gov.cn/kjzy/kjsj/cxxm/index.html', 'kjt.ah.gov.cn/kjzy/kjsj/cxxm/'],
+            target: '/kjt/kjzy/kjsj/cxxm',
         },
         {
             title: '科技数据 - 创新成果',
-            source: ['kjt.ah.gov.cn/kjzy/kjsj/cxcg/index.html'],
-            target: '/ah/kjt/kjzy/kjsj/cxcg',
+            source: ['kjt.ah.gov.cn/kjzy/kjsj/cxcg/index.html', 'kjt.ah.gov.cn/kjzy/kjsj/cxcg/'],
+            target: '/kjt/kjzy/kjsj/cxcg',
         },
         {
             title: '科技数据 - 转化基金入库项目',
-            source: ['kjt.ah.gov.cn/kjzy/kjsj/zhjjrkxm/index.html'],
-            target: '/ah/kjt/kjzy/kjsj/zhjjrkxm',
+            source: ['kjt.ah.gov.cn/kjzy/kjsj/zhjjrkxm/index.html', 'kjt.ah.gov.cn/kjzy/kjsj/zhjjrkxm/'],
+            target: '/kjt/kjzy/kjsj/zhjjrkxm',
         },
         {
             title: '科技数据 - 创新平台',
-            source: ['kjt.ah.gov.cn/kjzy/kjsj/cxpt/index.html'],
-            target: '/ah/kjt/kjzy/kjsj/cxpt',
+            source: ['kjt.ah.gov.cn/kjzy/kjsj/cxpt/index.html', 'kjt.ah.gov.cn/kjzy/kjsj/cxpt/'],
+            target: '/kjt/kjzy/kjsj/cxpt',
         },
         {
             title: '科技数据 - 创新园区',
-            source: ['kjt.ah.gov.cn/kjzy/kjsj/cxyq/index.html'],
-            target: '/ah/kjt/kjzy/kjsj/cxyq',
+            source: ['kjt.ah.gov.cn/kjzy/kjsj/cxyq/index.html', 'kjt.ah.gov.cn/kjzy/kjsj/cxyq/'],
+            target: '/kjt/kjzy/kjsj/cxyq',
         },
         {
             title: '科技数据 - 创新许可',
-            source: ['kjt.ah.gov.cn/kjzy/kjsj/cxxk/index.html'],
-            target: '/ah/kjt/kjzy/kjsj/cxxk',
+            source: ['kjt.ah.gov.cn/kjzy/kjsj/cxxk/index.html', 'kjt.ah.gov.cn/kjzy/kjsj/cxxk/'],
+            target: '/kjt/kjzy/kjsj/cxxk',
         },
     ],
 };

@@ -1,6 +1,6 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { config } from '@/config';
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -29,10 +29,15 @@ export const route: Route = {
 async function handler(ctx) {
     const gistId = ctx.req.param('gistId');
 
-    const headers = { Accept: 'application/vnd.github.v3+json' };
-    if (config.github && config.github.access_token) {
-        headers.Authorization = `Bearer ${config.github.access_token}`;
-    }
+    const headers =
+        config.github && config.github.access_token
+            ? {
+                  Accept: 'application/vnd.github.v3+json',
+                  Authorization: `Bearer ${config.github.access_token}`,
+              }
+            : {
+                  Accept: 'application/vnd.github.v3+json',
+              };
 
     const host = 'https://gist.github.com';
     const apiUrl = `https://api.github.com/gists/${gistId}`;
@@ -43,14 +48,13 @@ async function handler(ctx) {
 
     const items = response.history.map((item, index) => ({
         title: `${item.user.login} ${index === response.history.length - 1 ? 'created' : 'revised'} this gist`,
-        description: item.change_status.total ? `${item.change_status.additions} additions and ${item.change_status.deletions} deletions` : null,
+        description: item.change_status.total ? `${item.change_status.additions} additions and ${item.change_status.deletions} deletions` : undefined,
         link: `${host}/${gistId}/${item.version}`,
         pubDate: parseDate(item.committed_at), // e.g. 2022-09-02T11:09:56Z
     }));
 
     return {
-        allowEmpty: true,
-        title: `${response.owner.login} / ${Object.values(response.files)[0].filename}`,
+        title: `${response.owner.login} / ${Object.values<any>(response.files)[0].filename}`,
         description: response.description,
         image: response.owner.avatar_url,
         link: `${response.html_url}/revisions`,

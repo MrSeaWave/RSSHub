@@ -1,7 +1,7 @@
-import ConfigNotFoundError from '@/errors/types/config-not-found';
-import ofetch from '@/utils/ofetch';
-import { Route } from '@/types';
 import { config } from '@/config';
+import ConfigNotFoundError from '@/errors/types/config-not-found';
+import type { Route } from '@/types';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -34,13 +34,13 @@ export const route: Route = {
     handler,
     description: `Specify options (in the format of query string) in parameter \`routeParams\` to filter documents.
 
-| Parameter                  | Description                                                                            |   Values                                                                                    |  Default                             |
-| -------------------------- | -------------------------------------------------------------------------------------- |   ----------------------------------------------------------------------------------------- |  ----------------------------------- |
-| \`location\`               | The document's location.                                                               |   \`new\`/\`later\`/\`shortlist\`/\`archive\`/\`feed\`                                      |                                      |
-| \`category\`               | The document's category.                                                               |   \`article\`/\`email\`/\`rss\`/\`highlight\`/\`note\`/\`pdf\`/\`epub\`/\`tweet\`/\`video\` |                                      |
-| \`updatedAfter\`           | Fetch only documents updated after this date.                                          |   string (formatted as ISO 8601 date)                                                       ||
-| \`tag\`                    | The document's tag, can be specified once or multiple times.                           |||
-| \`tagStrategy\`            | If multiple tags are specified, should the documents match all of them or any of them. |   \`any\`/\`all\`                                                                           |  \`any\`                             |
+| Parameter      | Description                                                                            | Values                                                                  | Default |
+| -------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------- |
+| \`location\`     | The document's location.                                                               | \`new\`/\`later\`/\`shortlist\`/\`archive\`/\`feed\`                              |         |
+| \`category\`     | The document's category.                                                               | \`article\`/\`email\`/\`rss\`/\`highlight\`/\`note\`/\`pdf\`/\`epub\`/\`tweet\`/\`video\` |         |
+| \`updatedAfter\` | Fetch only documents updated after this date.                                          | string (formatted as ISO 8601 date)                                     |         |
+| \`tag\`          | The document's tag, can be specified once or multiple times.                           |                                                                         |         |
+| \`tagStrategy\`  | If multiple tags are specified, should the documents match all of them or any of them. | \`any\`/\`all\`                                                             | \`any\`   |
 
 Customise parameter values to fetch specific documents, for example:
 
@@ -54,7 +54,7 @@ fetches articles in the Inbox.
 https://rsshub.app/readwise/list/category=article&tag=shortlist&tag=AI&tagStrategy=all
 \`\`\`
 
-fetches articles tagged both by \`shortlist\` and \`AI\`. `,
+fetches articles tagged both by \`shortlist\` and \`AI\`.`,
 };
 
 const TAG_STRATEGY_ALL = 'all'; // Items with tags matching all the given ones can then be returned.
@@ -65,7 +65,7 @@ async function handler(ctx) {
         throw new ConfigNotFoundError('Readwise access token is missing');
     }
 
-    let apiUrl = 'https://readwise.io/api/v3/list/?';
+    const apiUrl = new URL('https://readwise.io/api/v3/list/');
     let tag, tagStrategy;
 
     if (ctx.req.param('routeParams')) {
@@ -75,46 +75,35 @@ async function handler(ctx) {
         const category = urlSearchParams.get('category');
         const updatedAfter = urlSearchParams.get('updatedAfter');
 
-        tag = urlSearchParams.get('tag');
+        tag = urlSearchParams.getAll('tag');
         tagStrategy = urlSearchParams.get('tagStrategy') === TAG_STRATEGY_ANY || urlSearchParams.get('tagStrategy') === TAG_STRATEGY_ALL ? urlSearchParams.get('tagStrategy') : TAG_STRATEGY_ANY;
 
         if (location) {
-            apiUrl += `location=${location}&`;
+            apiUrl.searchParams.set('location', location);
         }
         if (category) {
-            apiUrl += `category=${category}&`;
+            apiUrl.searchParams.set('category', category);
         }
         if (updatedAfter) {
-            apiUrl += `updatedAfter=${updatedAfter}&`;
+            apiUrl.searchParams.set('updatedAfter', updatedAfter);
         }
     }
 
-    const fullData = [];
-
-    async function fetchNextPage(url) {
-        const response = await ofetch(url, {
-            headers: {
-                Authorization: `Token ${config.readwise.accessToken}`,
-            },
-        });
-
-        fullData.push(...response.results);
-
-        if (response.nextPageCursor) {
-            await fetchNextPage(apiUrl + `pageCursor=${response.nextPageCursor}`);
-        }
-    }
-
-    await fetchNextPage(apiUrl);
+    const response = await ofetch(apiUrl.href, {
+        headers: {
+            Authorization: `Token ${config.readwise.accessToken}`,
+        },
+    });
+    const fullData = response.results;
 
     const items = fullData
         .filter((item) => {
-            if (!tag) {
+            if (!tag?.length) {
                 return true; // No tag filter applied
             }
 
             // Check if item.tags exist and match the criteria based on tagStrategy
-            const itemTags = item.tags;
+            const itemTags: Record<string, { name: string }> | undefined = item.tags;
 
             if (!itemTags) {
                 return false; // If item has no tags and tag filter is applied, exclude it
@@ -124,7 +113,8 @@ async function handler(ctx) {
                 if (tagStrategy === TAG_STRATEGY_ANY) {
                     // Filter if any of the tags match
                     return tag.some((t) => Object.values(itemTags).some((tagObj) => tagObj.name === t));
-                } else if (tagStrategy === TAG_STRATEGY_ALL) {
+                }
+                if (tagStrategy === TAG_STRATEGY_ALL) {
                     // Filter if all tags match
                     return tag.every((t) => Object.values(itemTags).some((tagObj) => tagObj.name === t));
                 }
@@ -139,7 +129,7 @@ async function handler(ctx) {
             title: item.title,
             link: item.source_url,
             description: item.summary,
-            pubDate: parseDate(item.created_at),
+            pubDate: item.created_at ? parseDate(item.created_at) : undefined,
             author: item.author,
         }));
 

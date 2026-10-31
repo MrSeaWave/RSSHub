@@ -1,10 +1,13 @@
-import { Route, ViewType } from '@/types';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
 import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+
 import { hash } from './utils';
 
 export const route: Route = {
     path: '/build/:owner/:image/:tag?',
-    categories: ['program-update', 'popular'],
+    categories: ['program-update'],
     view: ViewType.Notifications,
     example: '/dockerhub/build/diygod/rsshub/latest',
     parameters: {
@@ -49,7 +52,7 @@ async function handler(ctx) {
                 title: `${namespace}:${tag} was built. ${(item.images[0].size / 1_000_000).toFixed(2)} MB`,
                 link: `https://hub.docker.com/layers/docker/${namespace}/${tag}/images/${item.images[0].digest.replace(':', '-')}`,
                 author: owner,
-                pubDate: new Date(item.last_updated).toUTCString(),
+                pubDate: parseDate(item.last_updated),
                 // only check for different images hashes (considering varients of all arches), since the tag name is already fixed
                 guid: hash(item.images),
             },

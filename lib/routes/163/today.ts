@@ -1,9 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/today/:need_content?',
@@ -28,16 +30,17 @@ export const route: Route = {
     maintainers: ['nczitzk'],
     handler,
     url: 'wp.m.163.com/163/html/newsapp/todayFocus/index.html',
-    description: `:::tip
-  参数 **需要获取全文** 设置为 \`true\` \`yes\` \`t\` \`y\` 等值后，RSS 会携带该新闻条目的对应全文。
-  :::`,
+    description: `::: tip
+参数 **需要获取全文** 设置为 \`true\` \`yes\` \`t\` \`y\` 等值后，RSS 会携带该新闻条目的对应全文。
+:::`,
 };
 
 async function handler(ctx) {
     const needContent = /t|y/i.test(ctx.req.param('need_content') ?? 'true');
+    const limit = getRouteLimit(ctx, needContent ? 30 : 200);
 
     const rootUrl = 'https://gw.m.163.com';
-    const currentUrl = `${rootUrl}/nc/api/v1/feed/static/normal-list?start=0&tid=T1573700340788&size=${ctx.req.query('limit') ?? (needContent ? 30 : 200)}`;
+    const currentUrl = `${rootUrl}/nc/api/v1/feed/static/normal-list?start=0&tid=T1573700340788&size=${limit}`;
 
     const response = await got({
         method: 'get',
@@ -47,7 +50,7 @@ async function handler(ctx) {
     let items = response.data.data.items.map((item) => ({
         title: item.title,
         author: item.source,
-        pubDate: timezone(parseDate(item.ptime), +8),
+        pubDate: timezone(parseDate(item.ptime), 8),
         description: `<p>${item.digest}</p><img src="${item.imgsrc}">`,
         link: item.url || `https://c.m.163.com/news/a/${item.docid}.html`,
     }));

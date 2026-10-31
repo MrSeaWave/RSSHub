@@ -1,9 +1,12 @@
-import { Route, DataItem } from '@/types';
-import cache from '@/utils/cache';
-import { parseDate } from '@/utils/parse-date';
-import timezone from '@/utils/timezone';
 import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
+import cache from '@/utils/cache';
+import { evaluateScriptData } from '@/utils/evaluate-script';
 import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/:category/:type?',
@@ -18,8 +21,7 @@ export const route: Route = {
             source: ['www.cccfna.org.cn/:category/:type?'],
         },
     ],
-    description: `
-:::tip
+    description: `::: tip
 存在**二级分类**的**一级分类**不能单独当作参数，如：\`/cccfna/hangyezixun\`
 :::
 
@@ -51,21 +53,33 @@ export const route: Route = {
         const response = await ofetch(baseURL);
         const $ = load(response);
 
-        const list: DataItem[] = $('body > script')
-            .last()
-            .text()
-            .match(new RegExp(`https://www.cccfna.org.cn/${category}/.+?.html`, 'g'))!
-            .slice(0, 15)
-            .map((link) => ({ title: '', link }));
+        let list: DataItem[] = await Promise.all(
+            $('body > script')
+                .last()
+                .text()
+                .matchAll(/\{url:'(?:\\.|[^'\\])*',title:'(?:\\.|[^'\\])*',time:'[^']+'\}/g)
+                .filter(([data]) => data.startsWith(`{url:'https://www.cccfna.org.cn/${category}/`))
+                .take(15)
+                .toArray()
+                .map(async ([data]) => {
+                    const article = await evaluateScriptData<{ url: string; title: string; time: string }>(`var article=${data}`, 'article');
+                    return { title: article.title, link: article.url, pubDate: timezone(parseDate(article.time, 'YYYY-MM-DD'), 8) };
+                })
+        );
+        if (ctx.req.query('sorted') !== 'false') {
+            list = list.toSorted((a, b) => +new Date(b.pubDate || 0) - +new Date(a.pubDate || 0));
+        }
+        list = list.slice(0, getRouteLimit(ctx, 15));
 
         const items = await Promise.all(
             list.map((item) =>
                 cache.tryGet(item.link!, async () => {
-                    const $ = load(await ofetch(item.link!));
+                    const html = await ofetch(item.link!);
+                    const $ = load(html);
                     const content = $('.list_cont');
 
                     item.title = content.find('.title').text();
-                    item.pubDate = timezone(parseDate(content.find('.tip > .time').text(), '发布时间：YYYY-MM-DD'), +8);
+                    item.pubDate = timezone(parseDate(content.find('.tip > .time').text(), '发布时间：YYYY-MM-DD'), 8);
                     item.description = content.find('#article-content').html()!;
 
                     return item;
@@ -76,7 +90,7 @@ export const route: Route = {
         return {
             title: $('head > title').text(),
             link: baseURL,
-            item: items as DataItem[],
+            item: items,
         };
     },
 };

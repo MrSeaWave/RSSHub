@@ -1,9 +1,11 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 const base = 'https://jwc.qdu.edu.cn/';
 
@@ -38,26 +40,36 @@ async function handler() {
     });
 
     const $ = load(response.data);
-    const list = $('.notice_item').children();
-    const items = await Promise.all(
-        list.map((i, item) => {
-            item = $(item);
-            const itemTitle = item.find('.active').text();
-            const itemDate = item.find('span').text();
-            const path = item.find('.active').attr('href');
-            let itemUrl = '';
-            itemUrl = path.startsWith('http') ? path : base + path;
+    const list = $('.notice_item')
+        .children()
+        .toArray()
+        .flatMap((item) => {
+            const href = $(item).find('.active').attr('href');
+            if (!href) {
+                return [];
+            }
+            const link = new URL(href, `${base}jwtz.htm`);
+            if (!['http:', 'https:'].includes(link.protocol)) {
+                return [];
+            }
+            return { element: item, link: link.href };
+        });
+    const items = await pMap(
+        list,
+        (item) => {
+            const $item = $(item.element);
+            const itemTitle = $item.find('.active').text();
+            const itemDate = $item.find('span').text();
+            const itemUrl = item.link;
             return cache.tryGet(itemUrl, async () => {
-                let description = '';
-                if (path.startsWith('http')) {
-                    description = itemTitle;
-                } else {
+                let description: string | undefined;
+                if (new URL(itemUrl).origin === new URL(base).origin) {
                     const result = await got(itemUrl);
                     const $ = load(result.data);
-                    description =
-                        $('title').text() === '系统提示'
-                            ? itemTitle // 内网限制访问内容，仅返回标题
-                            : $('.v_news_content').html().trim();
+                    // Restricted notices do not expose a public article body.
+                    if ($('title').text() !== '系统提示') {
+                        description = $('.v_news_content').html()?.trim();
+                    }
                 }
                 return {
                     title: itemTitle,
@@ -66,7 +78,8 @@ async function handler() {
                     description,
                 };
             });
-        })
+        },
+        { concurrency: 3 }
     );
 
     return {

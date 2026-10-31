@@ -1,9 +1,13 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import { FetchError } from 'ofetch';
+import pMap from 'p-map';
+
+import { config } from '@/config';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
 import parser from '@/utils/rss-parser';
-import { config } from '@/config';
-import { FetchError } from 'ofetch';
 
 export const route: Route = {
     path: '/:lang/:category?',
@@ -40,16 +44,15 @@ export const route: Route = {
     name: 'News',
     maintainers: ['quiniapiezoelectricity'],
     handler,
-    description: `
-  | Language | English | Bahasa Malaysia | 华文     |
-  | -------- | ------ | ------- | ------ | 
-  | \`:lang\`  | \`en\`    | \`my\`   | \`zh\`    |
+    description: `| Language | English | Bahasa Malaysia | 华文 |
+| -------- | ------- | --------------- | ---- |
+| \`:lang\`  | \`en\`    | \`my\`            | \`zh\` |
 
-  | Category               | \`:category\` |
-  | ---------------------- | ------------- |
-  | News                   | \`news\`      |
-  | Columns                | \`columns\`   |
-  | From Our Readers       | \`letters\`   |`,
+| Category         | \`:category\` |
+| ---------------- | ----------- |
+| News             | \`news\`      |
+| Columns          | \`columns\`   |
+| From Our Readers | \`letters\`   |`,
     radar: [
         {
             source: ['malaysiakini.com/'],
@@ -109,6 +112,35 @@ async function handler(ctx) {
     const link = `https://www.malaysiakini.com/rss/${lang}/${category}.rss`;
     const feed = await parser.parseURL(link);
 
+    if (!cookie) {
+        const items = await pMap(
+            feed.items,
+            async (item): Promise<DataItem> => {
+                const link = item.link;
+                if (!link || !item.title) {
+                    throw new Error('Malaysiakini RSS did not provide an article title or link.');
+                }
+                const details = await cache.tryGet(`malaysiakini:public-article:v1:${link}`, () => getPublicArticleDetails(link));
+                return {
+                    title: item.title,
+                    link,
+                    description: details.description,
+                    author: details.author ?? item.creator,
+                    category: item.categories,
+                    pubDate: item.pubDate ? parseDate(item.pubDate) : undefined,
+                };
+            },
+            { concurrency: 3 }
+        );
+        return {
+            title: feed.title!,
+            link: feed.link,
+            description: feed.description,
+            language: lang,
+            item: items,
+        };
+    }
+
     if (cookie) {
         // Testing the cookie with the first item of the feed
         try {
@@ -129,7 +161,7 @@ async function handler(ctx) {
 
     const items = await Promise.all(
         feed.items.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 const response = await got(`https://www.malaysiakini.com/api/content/${item.guid}`);
                 if (response.data.stories.content) {
                     item.description = response.data.stories.content;
@@ -161,19 +193,43 @@ async function handler(ctx) {
                 if (response.data.stories.author) {
                     item.author = response.data.stories.author;
                 }
-                if (response.data.stories.tags) {
-                    item.category = response.data.stories.tags;
-                }
+                item.category = response.data.stories.tags;
                 return item;
             })
         )
     );
 
     return {
-        title: feed.title,
+        title: feed.title!,
         link: feed.link,
         description: feed.description,
         language: lang,
-        item: items,
+        item: items as DataItem[],
+    };
+}
+
+async function getPublicArticleDetails(link: string) {
+    const { data } = await got(link);
+    const $ = load(data);
+    const teaser = $('.article-paywall').first();
+    const content = teaser.length ? teaser : $('article.article-content .details').first();
+    content.find('script, style, .advertisement, .ad-center').remove();
+    const body = content.html();
+    if (!body || !content.text().trim()) {
+        throw new Error(`Cannot find the public article content on ${link}.`);
+    }
+    const image = $('#main-article-image img').first().attr('src');
+    const article = $('script[type="application/ld+json"]')
+        .toArray()
+        .flatMap((script) => JSON.parse($(script).text()))
+        .find((data) => data['@type'] === 'NewsArticle');
+    const authors = Array.isArray(article?.author) ? article.author : [article?.author];
+    const author = authors
+        .map((author) => (typeof author === 'string' ? author : author?.name))
+        .filter(Boolean)
+        .join(', ');
+    return {
+        description: `${image ? `<img src="${new URL(image, link).href}">` : ''}${body}`,
+        author: author || undefined,
     };
 }

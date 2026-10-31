@@ -1,8 +1,10 @@
+import { escapeUTF8 } from 'entities/escape';
+
+import { config } from '@/config';
+import ConfigNotFoundError from '@/errors/types/config-not-found';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import { config } from '@/config';
-import ConfigNotFoundError from '@/errors/types/config-not-found';
 
 const allowSiteList = ['mastodon.social', 'pawoo.net', 'fosstodon.org', config.mastodon.apiHost].filter(Boolean);
 
@@ -15,8 +17,8 @@ const apiHeaders = (site) => {
 const mediaParse = (media_attachments) =>
     media_attachments
         .map((item) => {
-            const selectedUrl = item.remote_url ?? item.url;
-            const description = item.description ?? '';
+            const selectedUrl = escapeUTF8(item.remote_url ?? item.url ?? '');
+            const description = escapeUTF8(item.description ?? '');
             switch (item.type) {
                 case 'gifv':
                     return `<br><video src="${selectedUrl}" autoplay loop>gif ${description}</video>`;
@@ -40,21 +42,21 @@ const parseStatuses = (data) =>
         const accountRepostedBy = item.reblog ? item.account : null;
         item = item.reblog ?? item;
 
-        const content = item.content ? item.content.replaceAll(/<span.*?>|<\/span.*?>/gm, '') : '';
-        const contentRemovedHtml = content.replaceAll(/<(?:.|\n)*?>/gm, '\n');
+        const content = item.content ? item.content.replaceAll(/<span.*?>|<\/span.*?>/g, '') : '';
+        const contentRemovedHtml = content.replaceAll(/<(?:.|\n)*?>/g, '\n');
 
         const author = `${item.account.display_name} (@${item.account.acct})`;
         const link = item.url;
         const media = mediaParse(item.media_attachments);
 
         const titleAuthor = accountRepostedBy ? `Re @${accountRepostedBy.username}` : `@${item.account.username}`;
-        const titleText = item.sensitive === true ? `(CW) ${item.spoiler_text}` : contentRemovedHtml;
+        const titleText = item.spoiler_text ? `(CW) ${item.spoiler_text}` : contentRemovedHtml;
         const title = `${titleAuthor}: "${titleText}"`;
 
         return {
             title,
             author,
-            description: item.spoiler_text + '<hr />' + content + media,
+            description: escapeUTF8(item.spoiler_text ?? '') + '<hr />' + content + media,
             pubDate: parseDate(item.created_at),
             link,
             guid: item.uri,

@@ -1,11 +1,13 @@
-import { Route } from '@/types';
+import { type Cheerio, type CheerioAPI, load } from 'cheerio';
+import { type AnyNode, cloneNode, Document } from 'domhandler';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
 const baseUrl = 'https://cs.xidian.edu.cn';
-
 const struct = {
     xyxw: {
         selector: {
@@ -57,7 +59,6 @@ const struct = {
         path: 'jyzhaop',
     },
 };
-
 export const route: Route = {
     path: '/cs/:category?',
     categories: ['university'],
@@ -75,69 +76,76 @@ export const route: Route = {
     url: 'cs.xidian.edu.cn',
     maintainers: ['ZiHao256'],
     handler,
-    description: `| 文章来源                   | 参数          |
-| ---------------------- | ----------- |
-| ✅主页-学院新闻                | xyxw        |
-| ✅主页-通知公告                | tzgg        |
-| ✅主页-交流合作                | jlhz1       |
-| ✅主页-人事人才                | rsrc        |
-| ✅主页-本科生教育 / 本科教育-教学新闻   | bkjy_jxxw   |
-| ✅主页-研究生教育 / 研究生教育-研究生通知 | yjsjy_yjstz |
-| ✅主页-就业招聘                | jyzhaop     |`,
+    description: `| 文章来源                                      | 参数         |
+| --------------------------------------------- | ------------ |
+| ✅主页 - 学院新闻                             | xyxw         |
+| ✅主页 - 通知公告                             | tzgg         |
+| ✅主页 - 交流合作                             | jlhz1        |
+| ✅主页 - 人事人才                             | rsrc         |
+| ✅主页 - 本科生教育 / 本科教育 - 教学新闻     | bkjy\\_jxxw   |
+| ✅主页 - 研究生教育 / 研究生教育 - 研究生通知 | yjsjy\\_yjstz |
+| ✅主页 - 就业招聘                             | jyzhaop      |`,
     radar: [
         {
             source: ['cs.xidian.edu.cn/'],
         },
     ],
 };
-
 async function handler(ctx) {
     const { category = 'xyxw' } = ctx.req.param();
     const url = `${baseUrl}/${struct[category].path}.htm`;
-    const response = await got(url, {
-        headers: {
-            referer: baseUrl,
-        },
-        https: {
-            rejectUnauthorized: false,
-        },
-    });
-
+    const response = await got(url);
     const $ = load(response.data);
-
     let items = $(struct[category].selector.list)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
             return {
-                title: item.find('a').text(),
-                link: new URL(item.find('a').attr('href'), baseUrl).href,
-                pubDate: parseDate(item.find('span').text()),
+                title: $item.find('a').text(),
+                link: new URL($item.find('a').attr('href')!, baseUrl).href,
+                pubDate: parseDate($item.find('span').text()),
             };
         });
-
-    items = await Promise.all(
-        items.map((item) =>
-            cache.tryGet(item.link, async () => {
-                const detailResponse = await got(item.link, {
-                    headers: {
-                        referer: url,
-                    },
-                    https: {
-                        rejectUnauthorized: false,
-                    },
-                });
-                const content = load(detailResponse.data);
-                content('.content-sxt').remove();
-                item.description = content('[name="_newscontent_fromname"]').html();
-                return item;
-            })
-        )
+    items = await pMap(
+        items,
+        (item) =>
+            mapResolvedValue(
+                cache.tryGet(`xidian:cs:content:v2:${item.link}`, async () => {
+                    const detailResponse = await got(item.link, {
+                        headers: {
+                            referer: url,
+                        },
+                    });
+                    const content = load(detailResponse.data);
+                    const body = content('[name="_newscontent_fromname"] .v_news_content').first();
+                    content('[name="_newscontent_fromname"] a[href*="download.jsp"]')
+                        .filter((_, attachment) => !content(attachment).closest('.v_news_content').length)
+                        .each((_, attachment) => {
+                            const attachmentWrapper1 = content('<p/>');
+                            attachmentWrapper1.append(copyContent(content(attachment), content));
+                            body.append(attachmentWrapper1);
+                        });
+                    return { description: body.html() ?? undefined };
+                }),
+                (detail) => ({ ...item, ...detail })
+            ),
+        { concurrency: 3, stopOnError: false }
     );
-
     return {
         title: $('title').text(),
         link: url,
         item: items,
     };
+}
+async function mapResolvedValue<T, U>(promise: Promise<T>, mapper: (value: T) => U | Promise<U>): Promise<U> {
+    const value = await promise;
+    return mapper(value);
+}
+function copyContent<T extends AnyNode>(selection: Cheerio<T>, $: CheerioAPI): Cheerio<T> {
+    const nodes = selection.toArray().map((node) => cloneNode(node, true));
+    const root = new Document(nodes);
+    for (const node of nodes) {
+        node.parent = root;
+    }
+    return $(nodes);
 }

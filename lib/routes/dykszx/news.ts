@@ -1,37 +1,42 @@
-import { Route } from '@/types';
 import { load } from 'cheerio';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
-import got from '@/utils/got';
-import cache from '@/utils/cache';
 
-const HOST = 'https://www.dykszx.com';
+const HOST = 'https://www.dykszx.cn';
 
 const getContent = async (href) => {
     const newsPage = `${HOST}${href}`;
     const response = await got.get(newsPage);
     const $ = load(response.data);
     const newsTime =
-        $('body > div:nth-child(3) > div.page.w > div.shuxing.w')
+        $('.shuxing')
             .text()
             .trim()
             .match(/时间：(.*?)点击/g)?.[0] || '';
     // 移除二维码
     $('.sjlook').remove();
-    const content = $('#show-body').html() || '';
-    return { newsTime, content, newsPage };
+    const content = $('#show-body').html();
+    return { newsTime, content, newsPage, title: $('.ptitle').text() };
 };
 
 const newsTypeObj = {
     all: { selector: '#nrs > li > b', name: '新闻中心' },
-    gwy: { selector: 'body > div:nth-child(3) > div:nth-child(8) > ul > li', name: '公务员考试' },
-    sydw: { selector: 'body > div:nth-child(3) > div:nth-child(9) > ul > li', name: '事业单位考试' },
-    zyzc: { selector: 'body > div:nth-child(3) > div:nth-child(10) > ul > li', name: '执（职）业资格、职称考试' },
-    other: { selector: 'body > div:nth-child(3) > div:nth-child(11) > ul > li', name: '其他考试' },
+    gwy: { selector: '.public:has(.title a[href="index.php?catid=19"]) > ul > li', name: '公务员考试' },
+    sydw: { selector: '.public:has(.title a[href="index.php?catid=20"]) > ul > li', name: '事业单位考试' },
+    zyzc: { selector: '.public:has(.title a[href="index.php?catid=21"]) > ul > li', name: '执（职）业资格、职称考试' },
+    other: { selector: '.public:has(.title a[href="index.php?catid=22"]) > ul > li', name: '其他考试' },
 };
 
 async function handler(ctx) {
     const newsType = ctx.req.param('newsType') || 'all';
+    if (!Object.hasOwn(newsTypeObj, newsType)) {
+        throw new InvalidParameterError(`Invalid news type: ${newsType}. Use all, gwy, sydw, zyzc, or other.`);
+    }
     const response = await got(HOST);
     const data = response.data;
     const $ = load(data);
@@ -40,13 +45,13 @@ async function handler(ctx) {
     const newsDetail = await Promise.all(
         newsList.map((item) => {
             const href = item.children[0].attribs.href;
-            return cache.tryGet(href, async () => {
+            return cache.tryGet(`dykszx:article:${href}`, async () => {
                 const newsContent = await getContent(href);
                 return {
-                    title: item.children[0].children[0].data,
+                    title: newsContent.title || item.children[0].children[0].data,
                     description: newsContent.content,
                     link: newsContent.newsPage,
-                    pubDate: timezone(parseDate(newsContent.newsTime, '时间：YYYY-MM-DD HH:mm:ss'), +8),
+                    pubDate: timezone(parseDate(newsContent.newsTime, '时间：YYYY-MM-DD HH:mm:ss'), 8),
                 };
             });
         })
@@ -74,15 +79,15 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['www.dykszx.com/'],
+            source: ['www.dykszx.cn/'],
             target: '/news/all',
         },
     ],
     name: '考试新闻发布',
     maintainers: ['zytomorrow'],
     handler,
-    url: 'www.dykszx.com',
-    description: `| 新闻中心 | 公务员考试 | 事业单位 | （职）业资格、职称考试 | 其他 |
-| :------: | :------: | :------: |:------: |:------: |
-|   all   |   gwy   |  sydw | zyzc  | other |`,
+    url: 'www.dykszx.cn',
+    description: `| 新闻中心 | 公务员考试 | 事业单位 | （职）业资格、职称考试 |  其他 |
+| :------: | :--------: | :------: | :--------------------: | :---: |
+|    all   |     gwy    |   sydw   |          zyzc          | other |`,
 };

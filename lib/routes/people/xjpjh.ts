@@ -1,10 +1,24 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import * as url from 'node:url';
+import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
 
 const host = 'http://jhsjk.people.cn';
+
+const parseCalendarDate = (date: string | undefined) => {
+    if (!date) {
+        return;
+    }
+    // UTC midnight represents the source calendar day, not its publication time.
+    const parsed = timezone(parseDate(date, 'YYYY-MM-DD', true), 0);
+    return Number.isFinite(parsed.getTime()) ? parsed : undefined;
+};
 
 export const route: Route = {
     path: '/xjpjh/:keyword?/:year?',
@@ -21,70 +35,70 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['people.com.cn/'],
-            target: '/:site?/:category?',
+            source: ['jhsjk.people.cn/'],
+            target: '/xjpjh',
         },
     ],
     name: '习近平系列重要讲话',
-    maintainers: [],
+    maintainers: ['LogicJake'],
     handler,
-    url: 'people.com.cn/',
+    url: 'jhsjk.people.cn',
 };
 
 async function handler(ctx) {
-    let keyword = ctx.req.param('keyword') || 'all';
-    let year = ctx.req.param('year') || 0;
-
-    let title = '习近平系列重要讲话';
-    title = title + '-' + keyword;
-    if (keyword === 'all') {
-        keyword = '';
-    }
-    if (year === 0) {
-        title = title + '-all';
-    } else {
-        title = title + '-' + year;
-        year = year - 1811;
+    const requestedKeyword = ctx.req.param('keyword');
+    const requestedYear = ctx.req.param('year');
+    if (requestedYear && requestedYear !== 'all' && !/^\d{4}$/.test(requestedYear)) {
+        throw new InvalidParameterError(`Invalid year '${requestedYear}'`);
     }
 
-    const link = `http://jhsjk.people.cn/result?keywords=${keyword}&year=${year}`;
+    const keyword = requestedKeyword && requestedKeyword !== 'all' ? requestedKeyword : '';
+    const year = requestedYear && requestedYear !== 'all' ? requestedYear : '0';
+    const limit = Math.min(getRouteLimit(ctx, 10), 10);
+    const title = `习近平系列重要讲话-${keyword || 'all'}-${year === '0' ? 'all' : year}`;
+    const resultUrl = new URL('/result', host);
+    resultUrl.searchParams.set('keywords', keyword);
+    resultUrl.searchParams.set('year', year);
+    const link = resultUrl.href;
     const response = await got.get(link);
 
     const $ = load(response.data);
 
-    const list = $('ul.list_14.p1_2.clearfix li')
-        .slice(0, 10)
-        .map(function () {
-            const info = {
-                title: $(this).find('a').text(),
-                link: $(this).find('a').attr('href'),
+    const list = $('#news_list > li > a[href]')
+        .slice(0, limit)
+        .toArray()
+        .map((element) => {
+            const item = $(element);
+            return {
+                title: item.text(),
+                link: new URL(item.attr('href')!, host).href,
+                pubDate: parseCalendarDate(
+                    item
+                        .parent()
+                        .children('span')
+                        .last()
+                        .text()
+                        .match(/\[(\d{4}-\d{2}-\d{2})\]/)?.[1]
+                ),
             };
-            return info;
-        })
-        .get();
+        });
 
-    const out = await Promise.all(
-        list.map(async (info) => {
-            const title = info.title;
-            const itemUrl = url.resolve(host, info.link);
+    const out = await pMap(
+        list,
+        async (item) => {
+            const detail = await cache.tryGet(`people:xjpjh:calendar:v2:${item.link}`, async () => {
+                const response = await got.get(item.link);
+                const $ = load(response.data);
+                const publishedDate = response.data.match(/发布时间：(\d{4}-\d{2}-\d{2})/)?.[1];
 
-            const cacheIn = await cache.get(itemUrl);
-            if (cacheIn) {
-                return JSON.parse(cacheIn);
-            }
-
-            const response = await got.get(itemUrl);
-            const $ = load(response.data);
-            const description = $('div.d2txt_con.clearfix').html().trim();
-
-            const single = {
-                title,
-                link: itemUrl,
-                description,
-            };
-            cache.set(itemUrl, JSON.stringify(single));
-            return single;
-        })
+                return {
+                    description: $('div.d2txt_con.clearfix').html(),
+                    pubDate: parseCalendarDate(publishedDate),
+                };
+            });
+            return { ...item, description: detail.description, pubDate: detail.pubDate ?? item.pubDate };
+        },
+        { concurrency: 3, stopOnError: false }
     );
 
     return {

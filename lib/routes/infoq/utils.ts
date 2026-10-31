@@ -1,7 +1,9 @@
+import { escapeAttribute, escapeText } from 'entities';
+
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 
-const ProcessFeed = async (list, cache) => {
+const processFeed = async (list, cache) => {
     const detailUrl = 'https://www.infoq.cn/public/v1/article/getDetail';
 
     const items = await Promise.all(
@@ -22,11 +24,14 @@ const ProcessFeed = async (list, cache) => {
                 const author = data.author ? data.author.map((p) => p.nickname).join(',') : data.no_author;
                 const category = [...e.topic.map((t) => t.name), ...e.label.map((l) => l.name)];
                 const content = data.content_url ? (await got(data.content_url)).body : data.content;
+                const description = addCoverToDescription(parseContent(content), data.article_cover);
+
+                const date = ([undefined, null, ''] as unknown[]).includes(e.publish_time) ? undefined : parseDate(e.publish_time, 'x');
 
                 return {
                     title: data.article_title,
-                    description: parseContent(content),
-                    pubDate: parseDate(e.publish_time, 'x'),
+                    description,
+                    pubDate: date && Number.isFinite(date.getTime()) ? date : undefined,
                     category,
                     author,
                     link,
@@ -48,45 +53,42 @@ const parseToSimpleTexts = (content) =>
                 parseToSimpleTexts(i.content)
                     .map((v) => `<p>${v}</p>`)
                     .join(''),
-            text: () => i.text,
+            text: () => escapeText(i.text ?? ''),
             heading: () => {
                 if (i.content) {
                     const level = i.attrs.level;
                     const text = parseToSimpleText(i.content);
                     return `<h${level}>${text}</h${level}>`;
-                } else {
-                    return '';
                 }
+                return '';
             },
             blockquote: () => {
                 if (i.content) {
                     const text = parseToSimpleText(i.content);
                     return `<blockquote>${text}</blockquote>`;
-                } else {
-                    return '';
                 }
+                return '';
             },
             image: () => {
-                const img = i.attrs.src;
+                const img = escapeAttribute(i.attrs.src);
                 return `<img src="${img}"></img>`;
             },
             codeblock: () => {
                 if (i.content) {
-                    const lang = i.attrs.lang;
+                    const lang = escapeAttribute(i.attrs.lang ?? '');
                     const code = parseToSimpleText(i.content);
                     return `<code lang="${lang}">${code}</code>`;
-                } else {
-                    return '';
                 }
+                return '';
             },
             link: () => {
-                const href = i.attrs.href;
+                const href = escapeAttribute(i.attrs.href);
                 const text = i.content ? parseToSimpleText(i.content) : '';
-                return `<a href="${href}">${text}</a>"`;
+                return `<a href="${href}">${text}</a>`;
             },
         };
 
-        if (i.type in funcMaps) {
+        if (Object.hasOwn(funcMaps, i.type)) {
             return funcMaps[i.type]();
         }
 
@@ -97,8 +99,12 @@ const parseToSimpleTexts = (content) =>
         return parseToSimpleText(i.content);
     });
 
+function addCoverToDescription(content, cover) {
+    return cover ? `<p><img src="${escapeAttribute(cover)}"></p>${content}` : content;
+}
+
 function parseContent(content) {
-    const isRichContent = content.startsWith(`{"`);
+    const isRichContent = content.startsWith('{"');
     if (!isRichContent) {
         return content;
     }
@@ -106,4 +112,4 @@ function parseContent(content) {
     return parseToSimpleText([JSON.parse(content)]);
 }
 
-export default { ProcessFeed };
+export default { processFeed };

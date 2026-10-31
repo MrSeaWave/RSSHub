@@ -1,8 +1,13 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import { parseDate } from '@/utils/parse-date';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
+
+import { selectItems } from '../utils';
 
 const siteUrl = 'https://xxgk.dhu.edu.cn';
 const baseUrl = 'https://xxgk.dhu.edu.cn/1737/list.htm';
@@ -31,42 +36,34 @@ async function handler() {
 
     const $ = load(response);
 
-    const items = await Promise.all(
-        $('.cols_list > li')
-            .toArray()
-            .map(async (item) => {
-                item = $(item);
-                const colsTitle = item.find('.cols_title > a');
-                const colsMeta = item.find('.cols_meta');
+    const list = $('.cols_list > li')
+        .toArray()
+        .map((element) => {
+            const $item = $(element);
+            const colsTitle = $item.find('.cols_title > a');
+            return {
+                title: colsTitle.text(),
+                link: new URL(colsTitle.attr('href')!, siteUrl).href,
+                pubDate: timezone(parseDate($item.find('.cols_meta').text(), 'YYYY-MM-DD', 'zh-cn'), 8),
+            };
+        });
 
-                // article meta
-                const link = colsTitle.attr('href');
-                const title = colsTitle.text();
-                const pubDate = parseDate(colsMeta.text(), 'YYYY-MM-DD', 'zh-cn');
-
-                // fetch article content and return item using cache.tryGet
-                // url as cache key
-                const url = `${siteUrl}${link}`;
-                return await cache.tryGet(url, async () => {
-                    // fetch article content
-                    // some contents are only available for internal network
-                    let description = '';
-                    try {
-                        const { data: response } = await got(url);
-                        const $ = load(response);
-                        description = $('.wp_articlecontent').first().html() ?? '';
-                    } catch {
-                        description = '';
-                    }
-
-                    return {
-                        title,
-                        link,
-                        pubDate,
-                        description,
-                    };
-                });
-            })
+    const items = await pMap(
+        selectItems(list),
+        (item) =>
+            cache.tryGet(item.link, async () => {
+                // Some article bodies are restricted to the university network.
+                let description: string;
+                try {
+                    const { data: response } = await got(item.link);
+                    const $ = load(response);
+                    description = $('.wp_articlecontent').html() ?? '';
+                } catch {
+                    description = '';
+                }
+                return { ...item, description };
+            }),
+        { concurrency: 3 }
     );
 
     return {

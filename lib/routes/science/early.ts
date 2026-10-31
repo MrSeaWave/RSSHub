@@ -1,8 +1,8 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
 import { load } from 'cheerio';
+
+import type { Language, Route } from '@/types';
 import got from '@/utils/got';
-import puppeteer from '@/utils/puppeteer';
+import { getPlaywrightPage } from '@/utils/playwright';
 
 import { baseUrl, fetchDesc, getItem } from './utils';
 
@@ -28,7 +28,7 @@ export const route: Route = {
     name: 'First Release',
     maintainers: ['y9c', 'TonyRL'],
     handler,
-    description: `*only Science, Science Immunology and Science Translational Medicine have first release*`,
+    description: '*only Science, Science Immunology and Science Translational Medicine have first release*',
 };
 
 async function handler(ctx) {
@@ -46,16 +46,20 @@ async function handler(ctx) {
         .toArray()
         .map((item) => getItem(item, $));
 
-    const browser = await puppeteer();
-    const items = await fetchDesc(list, browser, cache.tryGet);
-    await browser.close();
+    const { page, destroy } = await getPlaywrightPage('about:blank', { noGoto: true, closeTimeout: 0 });
+    let items;
+    try {
+        items = await fetchDesc(list, page);
+    } finally {
+        await destroy();
+    }
 
     return {
         title: $('head title').text(),
         description: $('.body02').text().trim(),
         image: `${baseUrl}/apple-touch-icon.png`,
         link: pageUrl,
-        language: 'en-US',
+        language: 'en-us' as const satisfies Language,
         item: items,
     };
 }

@@ -1,14 +1,25 @@
-import { DataItem, Route, ViewType } from '@/types';
-import ofetch from '@/utils/ofetch';
 import { load } from 'cheerio';
-import cache from '@/utils/cache';
-import { BitgetResponse } from './type';
-import { parseDate } from '@/utils/parse-date';
+
 import { config } from '@/config';
+import type { DataItem, Route } from '@/types';
+import { ViewType } from '@/types';
+import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+
+import type { BitgetResponse } from './type';
+
+interface AnnouncementRequestBody {
+    pageSize: number;
+    openUnread: number;
+    businessType: number;
+    isPre: boolean;
+}
 
 const handler: Route['handler'] = async (ctx) => {
     const baseUrl = 'https://www.bitget.com';
-    const announcementApiUrl = `${baseUrl}/v1/msg/push/stationLetterNew`;
+    const announcementApiUrl = `${baseUrl}/v1/msg/public/station/pageList`;
     const { type, lang = 'zh-CN' } = ctx.req.param<'/bitget/announcement/:type/:lang?'>();
     const languageCode = lang.replace('-', '_');
     const headers = {
@@ -18,111 +29,106 @@ const handler: Route['handler'] = async (ctx) => {
         language: languageCode,
         locale: languageCode,
     };
-    const pageSize = ctx.req.query('limit') ?? '10';
-
-    // stationLetterType: 0 表示全部通知，02 表示新币上线，01 表示最新活动，06 表示最新公告
-    const reqBody: {
-        pageSize: string;
-        openUnread: number;
-        stationLetterType: string;
-        isPre: boolean;
-        lastEndId: null;
-        languageType: number;
-        excludeStationLetterType?: string;
-    } = {
-        pageSize,
-        openUnread: 0,
-        stationLetterType: '0',
-        isPre: false,
-        lastEndId: null,
-        languageType: 1,
-    };
-
-    // 根据 type 判断 reqBody 的 stationLetterType 的值
-    switch (type) {
-        case 'new-listing':
-            reqBody.stationLetterType = '02';
-            break;
-
-        case 'latest-activities':
-            reqBody.stationLetterType = '01';
-            break;
-
-        case 'new-announcement':
-            reqBody.stationLetterType = '06';
-            break;
-
-        case 'all':
-            reqBody.stationLetterType = '0';
-            reqBody.excludeStationLetterType = '00';
-            break;
-
-        default:
-            throw new Error('Invalid type');
+    const pageSize = getRouteLimit(ctx, 10);
+    const businessTypes = {
+        all: [70, 20, 50],
+        'new-listing': [50],
+        'latest-activities': [20],
+        'new-announcement': [70],
+    }[type];
+    if (!businessTypes) {
+        throw new Error('Invalid type');
     }
 
-    const response = (await cache.tryGet(
-        `bitget:announcement:${type}:${pageSize}:${lang}`,
-        async () => {
-            const result = await ofetch<BitgetResponse>(announcementApiUrl, {
-                method: 'POST',
-                body: reqBody,
-                headers,
-            });
-            if (result?.code !== '200') {
-                throw new Error('Failed to fetch announcements, error code: ' + result?.code);
-            }
-            return result;
-        },
-        config.cache.routeExpire,
-        false
-    )) as BitgetResponse;
+    const responses = await Promise.all(
+        businessTypes.map((businessType) =>
+            cache.tryGet(
+                `bitget:announcement:public:${businessType}:${pageSize}:${lang}`,
+                async () => {
+                    const reqBody: AnnouncementRequestBody = {
+                        pageSize,
+                        openUnread: 0,
+                        businessType,
+                        isPre: false,
+                    };
+                    const result = await ofetch<BitgetResponse>(announcementApiUrl, {
+                        method: 'POST',
+                        body: reqBody,
+                        headers,
+                    });
+                    if (result?.code !== '200') {
+                        throw new Error('Failed to fetch announcements, error code: ' + result?.code);
+                    }
+                    return result;
+                },
+                config.cache.routeExpire,
+                false
+            )
+        )
+    );
+    const response = responses[0];
 
     if (!response) {
         throw new Error('Failed to fetch announcements');
     }
-    const items = response.data.items;
+    const items = responses
+        .flatMap((response) => response!.data.items)
+        .toSorted((a, b) => Number(b.sendTime || 0) - Number(a.sendTime || 0))
+        .slice(0, pageSize);
     const data = await Promise.all(
-        items.map(
-            (item) =>
-                cache.tryGet(`bitget:announcement:${item.id}:${pageSize}:${lang}`, async () => {
-                    // 从 unix 时间戳转换为日期
-                    const date = parseDate(Number(item.sendTime));
-                    const dataItem: DataItem = {
-                        title: item.title ?? '',
-                        link: item.openUrl ?? '',
-                        pubDate: item.sendTime ? date : undefined,
-                        description: item.content ?? '',
-                    };
+        items.map((item) =>
+            cache.tryGet(`bitget:announcement:public:${item.id}:${lang}`, async () => {
+                const date = parseDate(Number(item.sendTime));
+                const dataItem: DataItem = {
+                    title: item.title ?? '',
+                    link: item.openUrl,
+                    guid: item.id,
+                    pubDate: item.sendTime ? date : undefined,
+                    description: item.content ?? '',
+                    image: item.imgUrl,
+                };
 
-                    if (item.imgUrl) {
-                        dataItem.image = item.imgUrl;
-                    }
-
-                    if (item.stationLetterType === '01' || item.stationLetterType === '06') {
-                        try {
-                            const itemResponse = await ofetch<string>(item.openUrl ?? '', {
-                                headers,
-                            });
-                            const $ = load(itemResponse);
-                            const nextData = JSON.parse($('script#__NEXT_DATA__').text());
-                            dataItem.description = nextData.props.pageProps.details?.content || nextData.props.pageProps.pageInitInfo?.ruleContent || item.content || '';
-                        } catch (error: any) {
-                            if (error.name && (error.name === 'HTTPError' || error.name === 'RequestError' || error.name === 'FetchError')) {
-                                dataItem.description = item.content ?? '';
-                            } else {
-                                throw error;
+                if (item.openUrl && (item.businessType === 20 || item.businessType === 70)) {
+                    try {
+                        const itemResponse = await ofetch<string>(item.openUrl ?? '', {
+                            headers,
+                        });
+                        const $ = load(itemResponse);
+                        const queryState = $('script')
+                            .toArray()
+                            .map(
+                                (element) =>
+                                    $(element)
+                                        .text()
+                                        .match(/window\.__ZEUS_REACT_QUERY_STATE__\s*=\s*(\{.+\})/s)?.[1]
+                            )
+                            .find(Boolean);
+                        if (queryState) {
+                            const article = JSON.parse(queryState).queries.find((query) => query.queryKey[0] === 'articles')?.state.data?.articleDetails;
+                            dataItem.description = article?.content || item.content || '';
+                        } else {
+                            const nextData = $('script#__NEXT_DATA__').text();
+                            if (nextData) {
+                                const pageProps = JSON.parse(nextData).props.pageProps;
+                                dataItem.description = pageProps.details?.content || pageProps.pageInitInfo?.ruleContent || item.content || '';
                             }
                         }
+                    } catch (error: any) {
+                        if (error.name && ['HTTPError', 'RequestError', 'FetchError'].includes(error.name)) {
+                            dataItem.description = item.content ?? '';
+                        } else {
+                            throw error;
+                        }
                     }
-                    return dataItem;
-                }) as Promise<DataItem>
+                }
+                return dataItem;
+            })
         )
     );
 
     return {
         title: `Bitget | ${findTypeLabel(type)}`,
-        link: `https://www.bitget.com/${lang}/inmail`,
+        link: `https://www.bitget.com/${lang}/promotion/inmail`,
         item: data,
     };
 };
@@ -139,7 +145,7 @@ const findTypeLabel = (type: string) => {
 
 export const route: Route = {
     path: '/announcement/:type/:lang?',
-    categories: ['finance', 'popular'],
+    categories: ['finance'],
     view: ViewType.Articles,
     example: '/bitget/announcement/all/zh-CN',
     parameters: {
@@ -170,32 +176,32 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['www.bitget.com/:lang/inmail'],
+            source: ['www.bitget.com/:lang/promotion/inmail', 'www.bitget.com/:lang/inmail'],
             target: '/announcement/all/:lang',
         },
     ],
     name: 'Announcement',
-    description: `
-type:
-| Type | Description |
-| --- | --- |
-| all | 全部通知 |
-| new-listing | 新币上线 |
-| latest-activities | 最新活动 |
-| new-announcement | 最新公告 |
+    description: `type:
+
+| Type              | Description |
+| ----------------- | ----------- |
+| all               | 全部通知    |
+| new-listing       | 新币上线    |
+| latest-activities | 最新活动    |
+| new-announcement  | 最新公告    |
 
 lang:
-| Lang | Description |
-| ---   | ---   |
-| zh-CN | 中文 |
-| en-US | English |
-| es-ES | Español |
-| fr-FR | Français |
-| de-DE | Deutsch |
-| ja-JP | 日本語 |
-| ru-RU | Русский |
-| ar-SA | العربية |
-`,
+
+| Lang  | Description |
+| ----- | ----------- |
+| zh-CN | 中文        |
+| en-US | English     |
+| es-ES | Español     |
+| fr-FR | Français    |
+| de-DE | Deutsch     |
+| ja-JP | 日本語      |
+| ru-RU | Русский     |
+| ar-SA | العربية     |`,
     maintainers: ['YukiCoco'],
     handler,
 };

@@ -1,5 +1,6 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
+
 import cache from './cache';
 import utils from './utils';
 
@@ -10,7 +11,7 @@ export const route: Route = {
     parameters: {},
     features: {
         requireConfig: false,
-        requirePuppeteer: false,
+        requirePuppeteer: true,
         antiCrawler: false,
         supportBT: false,
         supportPodcast: false,
@@ -18,7 +19,10 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['www.bilibili.com/', 'm.bilibili.com/'],
+            source: ['www.bilibili.com/'],
+        },
+        {
+            source: ['m.bilibili.com/'],
         },
     ],
     name: '热搜',
@@ -34,16 +38,13 @@ async function handler() {
     const response = await got({
         method: 'get',
         url,
-        headers: {
-            Referer: `https://api.bilibili.com`,
-        },
     });
     const trending = response?.data?.data?.trending;
     const title = trending?.title;
     const list = trending?.list || [];
     return {
         title,
-        link: url,
+        link: 'https://www.bilibili.com/',
         description: 'bilibili热搜',
         item: list.map((item) => ({
             title: item.keyword,

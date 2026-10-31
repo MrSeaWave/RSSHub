@@ -1,8 +1,10 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
+import { html } from 'hono/html';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/:category?',
@@ -19,15 +21,15 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['hacking8.com/index/:category', 'hacking8.com/'],
+            source: ['i.hacking8.com/index/:category', 'i.hacking8.com/'],
         },
     ],
     name: '信息流',
     maintainers: ['nczitzk'],
     handler,
     description: `| 推荐  | 最近更新 | 漏洞 / PoC 监控 | PDF |
-  | ----- | -------- | --------------- | --- |
-  | likes | index    | vul-poc         | pdf |`,
+| ----- | -------- | --------------- | --- |
+| likes | index    | vul-poc         | pdf |`,
 };
 
 async function handler(ctx) {
@@ -46,16 +48,18 @@ async function handler(ctx) {
     const items = $('div.media')
         .toArray()
         .map((item) => {
-            item = $(item);
+            const $item = $(item);
 
-            const a = item.find('div.link a');
+            const a = $item.find('div.link a');
+            const date = $item.parent().parent().find('td').first().text().trim();
+            const pubDate = date ? timezone(parseDate(date, 'YYYY年M月D日 HH:mm'), 8) : undefined;
 
             return {
                 title: a.text(),
-                link: new URL(a.attr('href'), rootUrl).href,
-                description: item.find('div.media-body pre').text(),
-                pubDate: timezone(parseDate(item.parent().parent().find('td').first().text(), 'YYYY年M月D日 HH:mm'), +8),
-                category: item
+                link: new URL(a.attr('href')!, rootUrl).href,
+                description: html`<pre>${$item.find('div.media-body pre').text()}</pre>`.toString(),
+                pubDate: pubDate && !Number.isNaN(pubDate.getTime()) ? pubDate : undefined,
+                category: $item
                     .parent()
                     .parent()
                     .find('span.label')

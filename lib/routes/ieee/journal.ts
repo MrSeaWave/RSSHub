@@ -1,15 +1,18 @@
-import { Route } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
+import { load } from 'cheerio';
+import pMap from 'p-map';
 
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
 import got from '@/utils/got';
-import path from 'node:path';
-import { art } from '@/utils/render';
+import { parseDate } from '@/utils/parse-date';
+
+import { renderDescription } from './templates/description';
+import { fetchArticleMetadata, withArticleMetadataBrowser } from './utils';
 
 const ieeeHost = 'https://ieeexplore.ieee.org';
 
 export const route: Route = {
-    name: 'IEEE Journal Articles',
+    name: 'Journal Articles',
     maintainers: ['HenryQW'],
     categories: ['journal'],
     path: '/journal/:punumber/:earlyAccess?',
@@ -18,33 +21,44 @@ export const route: Route = {
         earlyAccess: 'Optional, set any value to get early access articles',
     },
     example: '/ieee/journal/6287639/preprint',
+    features: { requirePuppeteer: true },
     handler,
 };
 
 async function handler(ctx) {
     const publicationNumber = ctx.req.param('punumber');
+    if (!/^[1-9]\d*$/.test(publicationNumber)) {
+        throw new InvalidParameterError('Invalid publication number. Use a positive integer.');
+    }
     const earlyAccess = !!ctx.req.param('earlyAccess');
 
-    const metadata = await fetchMetadata(publicationNumber);
-    const { displayTitle, currentIssue, preprintIssue, coverImagePath } = metadata;
+    const { displayTitle, currentIssue, preprintIssue, coverImagePath, coverImage } = await fetchMetadata(publicationNumber);
     const { issueNumber, volume } = earlyAccess ? preprintIssue : currentIssue;
 
     const tocData = await fetchTOCData(publicationNumber, issueNumber);
-    const list = tocData.records.map((item) => {
+    const list: Array<ReturnType<ReturnType<typeof mapRecordToItem>>> = tocData.records.map((item) => {
         const mappedItem = mapRecordToItem(volume)(item);
-
-        mappedItem.description = art(path.join(__dirname, 'templates/description.art'), {
-            item: mappedItem,
-        });
 
         return mappedItem;
     });
 
+    const items = await withArticleMetadataBrowser((getBrowser) =>
+        pMap(
+            list,
+            async (item) => {
+                const metadata = await fetchArticleMetadata(item.link, getBrowser);
+                const article = { ...item, abstract: metadata.abstract || item.abstract, pubDate: metadata.insertDate ? parseDate(metadata.insertDate) : undefined };
+                return { ...article, description: renderDescription(article) };
+            },
+            { concurrency: 3 }
+        )
+    );
+
     return {
         title: displayTitle,
         link: `${ieeeHost}/xpl/tocresult.jsp?isnumber=${issueNumber}`,
-        item: list,
-        image: `${ieeeHost}${coverImagePath}`,
+        item: items,
+        image: coverImagePath || coverImage ? new URL(coverImagePath || coverImage, ieeeHost).href : undefined,
     };
 }
 
@@ -62,8 +76,8 @@ async function fetchTOCData(punumber, isnumber) {
 
 function mapRecordToItem(volume) {
     return (item) => ({
-        abstract: item.abstract || '',
-        authors: item.authors ? item.authors.map((author) => author.preferredName).join('; ') : '',
+        abstract: load(item.abstract ?? '').text(),
+        author: item.authors?.map((author) => author.preferredName).join('; '),
         description: '',
         doi: item.doi,
         link: item.htmlLink,

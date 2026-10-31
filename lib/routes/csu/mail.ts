@@ -1,14 +1,16 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
 
 async function fetch(address) {
     const res = await got(address);
     const $ = load(res.data);
-    return $('.tb-ct-info').html();
+    const content = $('.tb-ct-info tr').filter((_index, row) => $(row).find('.lbl_WJNR, .lbl_HFNR').length > 0);
+    return `<table>${content.toString()}</table>`;
 }
 
 export const route: Route = {
@@ -28,8 +30,8 @@ export const route: Route = {
     maintainers: ['j1g5awi'],
     handler,
     description: `| 类型 | 校长信箱 | 党委信箱 |
-  | ---- | -------- | -------- |
-  | 参数 | 01       | 02       |`,
+| ---- | -------- | -------- |
+| 参数 | 01       | 02       |`,
 };
 
 async function handler(ctx) {

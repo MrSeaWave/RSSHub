@@ -1,6 +1,10 @@
-import got from '@/utils/got';
 import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
     path: '/news',
@@ -9,46 +13,65 @@ export const route: Route = {
     parameters: {},
     radar: [
         {
-            source: ['anthropic.com'],
+            source: ['www.anthropic.com/news', 'www.anthropic.com'],
         },
     ],
     name: 'News',
-    maintainers: ['etShaw-zh'],
+    maintainers: ['etShaw-zh', 'goestav'],
     handler,
-    url: 'anthropic.com/news',
+    url: 'www.anthropic.com/news',
 };
 
-async function handler() {
-    const link = 'https://anthropic.com/news';
-    const response = await got(link);
-    const $ = load(response.body);
+async function handler(ctx) {
+    const link = 'https://www.anthropic.com/news';
+    const response = await ofetch(link);
+    const $ = load(response);
+    const limit = getRouteLimit(ctx, 10);
 
-    const list = $('.contentFadeUp a')
+    const list: DataItem[] = $('[data-listing-row]')
         .toArray()
-        .map((e) => {
-            e = $(e);
-            const title = e.find('h3.PostCard_post-heading__KPsva').text().trim(); // Extract title
-            const href = e.attr('href'); // Extract link
-            const pubDate = e.find('.PostList_post-date__giqsu').text().trim(); // Extract publication date
-            const fullLink = href.startsWith('http') ? href : `https://anthropic.com${href}`; // Complete relative links
+        .slice(0, limit)
+        .map((el) => {
+            const $el = $(el);
+            const $link = $el.find('a[class$="_title-link"]');
+            const title = $link.text().trim();
+            const href = $link.attr('href') ?? '';
+            const pubDate = $el.find('time').text().trim();
+            const link = href.startsWith('http') ? href : `https://www.anthropic.com${href}`;
             return {
                 title,
-                link: fullLink,
+                link,
                 pubDate,
             };
         });
 
-    const out = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
-                const response = await got(item.link);
-                const $ = load(response.body);
+    const out = await pMap(
+        list,
+        (item) =>
+            cache.tryGet(item.link!, async () => {
+                const response = await ofetch(item.link!);
+                const $ = load(response);
 
-                item.description = $('.text-b2.PostDetail_post-detail__uTcjp').html() || ''; // Full article content
+                const content = $('#main-content');
+
+                $('[class$="_Header"], [class$="_ConstellationPanelSlot"]').remove();
+
+                content.find('img').each((_, e) => {
+                    const $e = $(e);
+                    $e.removeAttr('style srcset');
+                    const src = $e.attr('src');
+                    const params = new URLSearchParams(src);
+                    const newSrc = params.get('/_next/image?url');
+                    if (newSrc) {
+                        $e.attr('src', newSrc);
+                    }
+                });
+
+                item.description = content.html();
 
                 return item;
-            })
-        )
+            }),
+        { concurrency: 5 }
     );
 
     return {

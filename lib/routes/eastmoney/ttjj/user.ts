@@ -1,12 +1,22 @@
-import { Route, ViewType } from '@/types';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 import timezone from '@/utils/timezone';
+
+interface UserPost {
+    post_id: string;
+    post_title: string;
+    post_display_time: string;
+}
 
 export const route: Route = {
     path: '/ttjj/user/:uid',
-    categories: ['finance', 'popular'],
+    categories: ['finance'],
     view: ViewType.SocialMedia,
     example: '/eastmoney/ttjj/user/6551094298949188',
     parameters: { uid: '用户id, 可以通过天天基金App分享用户主页到浏览器，在相应的URL中找到' },
@@ -50,12 +60,21 @@ async function handler(ctx) {
         },
     });
 
-    const data = listResponse.data.re;
+    const data: UserPost[] = listResponse.data.re;
+    const list = data.map((item) => ({ ...item, pubDate: timezone(parseDate(item.post_display_time, 'YYYY-MM-DD HH:mm:ss'), 8) }));
+    const sorted = ctx.req.query('sorted') !== 'false';
+    const hasDates = list.every((item) => Number.isFinite(item.pubDate.getTime()));
+    if (sorted && hasDates) {
+        list.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
+    }
+    const limit = getRouteLimit(ctx);
+    const candidates = limit && (!sorted || hasDates) ? list.slice(0, limit) : list;
 
     const userArticleUrl = `${urlPrefix}/Article/Post/ArticleContent.ashx`;
 
-    const result = await Promise.all(
-        data.map((item) =>
+    const result = await pMap(
+        candidates,
+        (item) =>
             cache.tryGet(userArticleUrl + item.post_id, async () => {
                 const detailResponse = await got({
                     method: 'post',
@@ -70,12 +89,12 @@ async function handler(ctx) {
                 const single = {
                     title: item.post_title,
                     description,
-                    pubDate: timezone(parseDate(item.post_display_time, 'YYYY-MM-DD HH:mm:ss'), +8),
+                    pubDate: item.pubDate,
                     link: `https://fundbarmob.eastmoney.com/index.html?goPage=articleView&lastPage=personDetailView&aid=${item.post_id}`,
                 };
                 return single;
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
     return {
         title: `天天基金-${username}的主页`,

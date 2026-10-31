@@ -1,7 +1,9 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/jw',
@@ -33,25 +35,22 @@ async function handler() {
     const res = await got({
         method: 'get',
         url,
-        headers: {
-            Referer: baseUrl,
-        },
     });
     const $ = load(res.data);
     const list = $('.notice_01').find('li');
 
     return {
-        title: $('title').first().text(),
+        title: $('title').text(),
         link: url,
         description: '华南师范大学教务处 - 通知公告',
         item:
             list &&
             list.toArray().map((item) => {
-                item = $(item);
+                const $item = $(item);
                 return {
-                    title: item.find('a').text(),
-                    pubDate: parseDate(item.find('.time').text()),
-                    link: item.find('a').attr('href'),
+                    title: $item.find('a').text(),
+                    pubDate: timezone(parseDate($item.find('.time').text()), 8),
+                    link: $item.find('a').attr('href'),
                 };
             }),
     };

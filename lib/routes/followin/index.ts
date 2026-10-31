@@ -1,11 +1,11 @@
-import { Route, ViewType } from '@/types';
-import cache from '@/utils/cache';
-import got from '@/utils/got';
-import { apiUrl, favicon, getBParam, getBuildId, getGToken, parseList, parseItem } from './utils';
+import type { Route } from '@/types';
+import { ViewType } from '@/types';
+
+import { favicon, getApi, getPoolSize, processList } from './utils';
 
 export const route: Route = {
     path: '/:categoryId?/:lang?',
-    categories: ['finance', 'popular'],
+    categories: ['finance'],
     view: ViewType.Articles,
     example: '/followin',
     parameters: {
@@ -48,41 +48,25 @@ export const route: Route = {
     handler,
     description: `Category ID
 
-  | For You | Market | Meme | BRC20 | NFT | Thread | In-depth | Tutorials | Videos |
-  | ------- | ------ | ---- | ----- | --- | ------ | -------- | --------- | ------ |
-  | 1       | 9      | 13   | 14    | 3   | 5      | 6        | 8         | 11     |
+| For You | Market | Meme | BRC20 | NFT | Thread | In-depth | Tutorials | Videos |
+| ------- | ------ | ---- | ----- | --- | ------ | -------- | --------- | ------ |
+| 1       | 9      | 13   | 14    | 3   | 5      | 6        | 8         | 11     |
 
-  Language
+Language
 
-  | English | 简体中文 | 繁體中文 | Tiếng Việt |
-  | ------- | -------- | -------- | ---------- |
-  | en      | zh-Hans  | zh-Hant  | vi         |`,
+| English | 简体中文 | 繁體中文 | Tiếng Việt |
+| ------- | -------- | -------- | ---------- |
+| en      | zh-Hans  | zh-Hant  | vi         |`,
 };
 
 async function handler(ctx) {
     const { categoryId = '1', lang = 'en' } = ctx.req.param();
-    const { limit = 20 } = ctx.req.query();
-    const gToken = await getGToken(cache.tryGet);
-    const bParam = getBParam(lang);
-
-    const { data: response } = await got.post(`${apiUrl}/feed/list/recommended`, {
-        headers: {
-            'x-bparam': JSON.stringify(bParam),
-            'x-gtoken': gToken,
-        },
-        json: {
-            category_id: Number.parseInt(categoryId),
-            count: Number.parseInt(limit),
-        },
+    const poolSize = getPoolSize(ctx, 20);
+    const response = await getApi('/feed/list/recommended', lang, {
+        category_id: Number.parseInt(categoryId),
+        count: poolSize,
     });
-    if (response.code !== 2000) {
-        throw new Error(response.msg);
-    }
-
-    const buildId = await getBuildId(cache.tryGet);
-
-    const list = parseList(response.data.list, lang, buildId);
-    const items = await Promise.all(list.map((item) => parseItem(item, cache.tryGet)));
+    const items = await processList(response.list, lang, ctx, 20);
 
     return {
         title: 'Followin',

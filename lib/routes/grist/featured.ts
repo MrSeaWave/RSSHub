@@ -1,12 +1,14 @@
-import { Route } from '@/types';
-import cache from '@/utils/cache';
-import { getData, getList } from './utils';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Data, Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+
+import { getData, getList } from './utils';
 
 export const route: Route = {
     path: '/featured',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/grist/featured',
     parameters: {},
     features: {
@@ -28,7 +30,7 @@ export const route: Route = {
     url: 'grist.org/',
 };
 
-async function handler() {
+async function handler(): Promise<Data> {
     const baseUrl = 'https://grist.org/';
     const { data: response } = await got(baseUrl);
     const $ = load(response);
@@ -36,17 +38,15 @@ async function handler() {
     const listItems = $('li.hp-featured__tease')
         .toArray()
         .map((item) => {
-            item = $(item);
-            const link = item.find('.small-tease__link').attr('href').split('/').at(-2);
-            return {
-                link,
-            };
+            const $item = $(item);
+            const slug = new URL($item.find('.small-tease__link').attr('href')!, baseUrl).pathname.split('/').findLast(Boolean)!;
+            return `https://grist.org/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&_embed`;
         });
-    const itemData = await Promise.all(listItems.map((item) => cache.tryGet(item.link, async () => (await getData(`https://grist.org/wp-json/wp/v2/posts?slug='${item.link}'&_embed`))[0])));
+    const itemData = await Promise.all(listItems.map((url) => cache.tryGet(url, async () => (await getData(url))[0])));
     const items = await getList(itemData);
 
     return {
-        title: 'Gist Featured Articles',
+        title: 'Grist Featured Articles',
         link: baseUrl,
         item: items,
         description: 'Featured Articles on Grist.org',

@@ -1,7 +1,9 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import { fetchItems } from '@/routes/ecnu/utils';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -34,24 +36,23 @@ async function handler() {
     const $ = load(response.data);
     const list = $('.subList li')
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem & { link: string } => {
+            const $item = $(item);
             return {
-                title: item.find('li a').text(),
-                link: item.find('li a').attr('href').replace('http:', 'https:'),
+                title: $item.find('li a').text(),
+                link: $item.find('li a').attr('href')!.replace('http:', 'https:'),
             };
         });
 
-    const items = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
-                const { data: response } = await got(item.link);
-                const $ = load(response);
-                item.description = $('.articleCon').html();
-                item.pubDate = parseDate($('.outer_utime').text());
-                return item;
-            })
-        )
+    const items = await fetchItems(list, (item) =>
+        cache.tryGet(item.link, async () => {
+            const { data: response } = await got(item.link);
+            const $ = load(response);
+            item.description = $('.articleCon').html();
+            const dateText = $('.outer_utime').text().trim();
+            item.pubDate = dateText ? parseDate(/^\d{4}-\d{2}-\d{2}$/.test(dateText) ? `${dateText}T00:00:00Z` : dateText) : undefined;
+            return item;
+        })
     );
 
     return {

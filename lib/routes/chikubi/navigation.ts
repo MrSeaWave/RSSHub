@@ -1,6 +1,8 @@
-import { Route, Data } from '@/types';
-import { getBySlug, getPostsBy, processItems } from './utils';
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Data, Route } from '@/types';
 import parser from '@/utils/rss-parser';
+
+import { getBySlug, getPostsBy, processItems } from './utils';
 
 export const route: Route = {
     path: '/:keyword',
@@ -14,13 +16,14 @@ export const route: Route = {
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
+        nsfw: true,
     },
     name: 'Navigation',
     maintainers: ['SnowAgar25'],
     handler,
-    description: `| 殿堂 | 動畫 | VR | 漫畫 | 音聲 | CG・イラスト |
-  | ---- | ----- | -- | ----- | ----- | -- |
-  | best | video | vr | comic | voice | cg |`,
+    description: `| 殿堂 | 動畫  | VR | 漫畫  | 音聲  | CG・イラスト |
+| ---- | ----- | -- | ----- | ----- | ------------ |
+| best | video | vr | comic | voice | cg           |`,
 };
 
 const navigationItems = {
@@ -44,23 +47,26 @@ async function handler(ctx): Promise<Data> {
             link: `${baseUrl}/best-nipple-article`,
             item: items,
         };
-    } else {
-        const { url, title } = navigationItems[keyword];
-
-        const feed = await parser.parseURL(`${baseUrl}${url}/feed`);
-
-        const list = feed.items.map((item) => ({
-            title: item.title,
-            link: item.link,
-        }));
-
-        // 獲取內文
-        const items = await processItems(list);
-
-        return {
-            title: `${title} - chikubi.jp`,
-            link: `${baseUrl}${url}`,
-            item: items,
-        };
     }
+    if (!Object.hasOwn(navigationItems, keyword)) {
+        throw new InvalidParameterError(`Unknown navigation section "${keyword}". Use best, ${Object.keys(navigationItems).join(', ')}.`);
+    }
+    const { url, title } = navigationItems[keyword];
+
+    const feed = await parser.parseURL(`${baseUrl}${url}/feed`);
+
+    const list = feed.items.map((item) => ({
+        title: item.title,
+        link: item.link,
+        pubDate: item.pubDate,
+    }));
+
+    // 獲取內文
+    const items = await processItems(list);
+
+    return {
+        title: `${title} - chikubi.jp`,
+        link: `${baseUrl}${url}`,
+        item: items,
+    };
 }

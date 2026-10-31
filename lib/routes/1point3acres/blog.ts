@@ -1,7 +1,9 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
     path: '/blog/:category?',
@@ -25,8 +27,8 @@ export const route: Route = {
     maintainers: ['nczitzk'],
     handler,
     description: `| 留学申请   | 找工求职 | 生活攻略  | 投资理财 | 签证移民 | 时政要闻 |
-  | ---------- | -------- | --------- | -------- | -------- | -------- |
-  | studyinusa | career   | lifestyle | invest   | visa     | news     |`,
+| ---------- | -------- | --------- | -------- | -------- | -------- |
+| studyinusa | career   | lifestyle | invest   | visa     | news     |`,
 };
 
 async function handler(ctx) {
@@ -64,7 +66,7 @@ async function handler(ctx) {
     const { data } = await got(`${rootUrl}/wp-json/wp/v2/posts`, {
         searchParams: {
             categories: category ? categoryMap[category].id : undefined,
-            per_page: ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 100,
+            per_page: getRouteLimit(ctx, 100),
         },
     });
 

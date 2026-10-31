@@ -1,13 +1,18 @@
-import { Route, ViewType } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { DataItem, Route } from '@/types';
+import { ViewType } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/gnn/:category?',
-    categories: ['anime', 'popular'],
+    categories: ['anime'],
     view: ViewType.Articles,
     example: '/gamer/gnn/1',
     parameters: {
@@ -52,7 +57,7 @@ export const route: Route = {
 
 async function handler(ctx) {
     const category = ctx.req.param('category');
-    let url = '';
+    let url: string;
     let categoryName = '';
     const categoryTable = {
         1: 'PC',
@@ -76,11 +81,14 @@ async function handler(ctx) {
         anime: '動畫',
     };
     const mainCategory = ['1', '3', '4', '5', '9', '11', '13'];
-    if (!category || !Object.keys(categoryTable).includes(category)) {
-        url = 'https://gnn.gamer.com.tw/';
-    } else {
+    if (category && !Object.keys(categoryTable).includes(category)) {
+        throw new InvalidParameterError(`Unknown GNN category "${category}". Choose a supported category: ${Object.keys(categoryTable).join(', ')}`);
+    }
+    if (category) {
         categoryName = '-' + categoryTable[category];
         url = mainCategory.includes(category) ? `https://gnn.gamer.com.tw/index.php?k=${category}` : `https://acg.gamer.com.tw/news.php?p=${category}`;
+    } else {
+        url = 'https://gnn.gamer.com.tw/';
     }
 
     const response = await got({
@@ -88,82 +96,80 @@ async function handler(ctx) {
         url,
     });
     const data = response.data;
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 50;
+    const requestedLimit = getRouteLimit(ctx, 50);
+    // Publication times are available only on article detail pages.
+    const limit = ctx.req.query('sorted') === 'false' ? requestedLimit : Math.max(50, requestedLimit);
     const $ = load(data);
 
     const list = $('div.BH-lbox.GN-lbox2')
         .children()
         .not('p,a,img,span')
+        // <div data-news-id="291265" id="291265"></div>
+        .not('[data-news-id]')
         .slice(0, limit)
-        .map((index, item) => {
-            item = $(item);
-            let aLabelNode;
-            let tag;
-            // a label with div
-            if (item.find('h1').length === 0) {
-                // a label without div
-                aLabelNode = item.find('a');
-                tag = item.find('div.platform-tag_list').text();
-            } else {
-                aLabelNode = item.find('h1').find('a');
-                tag = item.find('div.platform-tag_list').text();
-            }
+        .toArray()
+        .map((item): DataItem => {
+            const $item = $(item);
+            // a label with div / a label without div
+            const aLabelNode = $item.find('h1').length === 0 ? $item.find('a') : $item.find('h1').find('a');
+            const tag = $item.find('div.platform-tag_list').text();
 
             return {
                 title: '[' + tag + ']' + aLabelNode.text(),
-                link: aLabelNode.attr('href').replace('//', 'https://'),
+                link: aLabelNode.attr('href')!.replace('//', 'https://'),
             };
-        })
-        .get();
+        });
 
-    const items = await Promise.all(
-        list.map(async (item) => {
-            item.description = await cache.tryGet(item.link, async () => {
+    const items = await pMap(
+        list,
+        async (item) => {
+            const details = await cache.tryGet(`${item.link}#article`, async () => {
                 const response = await got.get(item.link);
-                let component = '';
+                let component: string;
                 const urlReg = /window\.lazySizesConfig/g;
 
                 let pubInfo;
                 let dateStr;
+                let author;
                 if (response.body.search(urlReg) >= 0) {
                     const $ = load(response.data);
                     if ($('span.GN-lbox3C').length > 0) {
                         // official publish 1
                         pubInfo = $('span.GN-lbox3C').text().split('）');
-                        item.author = pubInfo[0].replace('（', '').replace(' 報導', '');
+                        author = pubInfo[0].replace('（', '').replace(' 報導', '');
                         dateStr = pubInfo[1].trim();
                     } else {
                         // official publish 2
                         pubInfo = $('span.GN-lbox3CA').text().split('）');
-                        item.author = pubInfo[0].replace('（', '').replace(' 報導', '');
+                        author = pubInfo[0].replace('（', '').replace(' 報導', '');
                         dateStr = pubInfo[1].replace('原文出處', '').trim();
                     }
-                    component = $('div.GN-lbox3B').html();
+                    component = $('div.GN-lbox3B').html() ?? '';
                 } else {
-                    // url redirect
-                    const _response = await got.get(item.link);
-                    const _$ = load(_response.data);
+                    // got already follows redirects before returning the first response.
+                    const _$ = load(response.data);
 
                     if (_$('div.MSG-list8C').length > 0) {
                         // personal publish 1
                         pubInfo = _$('span.ST1').text().split('│');
-                        item.author = pubInfo[0].replace('作者：', '');
+                        author = pubInfo[0].replace('作者：', '');
                         dateStr = pubInfo[_$('span.ST1').find('a').length > 0 ? 2 : 1];
-                        component = _$('div.MSG-list8C').html();
+                        component = _$('div.MSG-list8C').html() ?? '';
                     } else {
                         // personal publish 2
                         pubInfo = _$('div.article-intro').text().replaceAll('\n', '').split('|');
-                        item.author = pubInfo[0];
+                        author = pubInfo[0];
                         dateStr = pubInfo[1];
-                        component = _$('div.text-paragraph').html();
+                        component = _$('div.text-paragraph').html() ?? '';
                     }
                 }
-                item.pubDate = timezone(parseDate(dateStr, 'YYYY-MM-DD HH:mm:ss'), +8);
+                const pubDate = timezone(parseDate(dateStr, 'YYYY-MM-DD HH:mm:ss'), 8);
                 component = component.replaceAll(/\b(data-src)\b/g, 'src');
-                return component;
+                return { description: component, author, pubDate };
             });
-            return item;
-        })
+            return { ...item, ...details };
+        },
+        { concurrency: 5 }
     );
 
     return {

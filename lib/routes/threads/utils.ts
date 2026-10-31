@@ -1,130 +1,113 @@
-import ofetch from '@/utils/ofetch';
-import { load } from 'cheerio';
+import type { CheerioAPI } from 'cheerio';
 import dayjs from 'dayjs';
-import cache from '@/utils/cache';
-import { destr } from 'destr';
-import NotFoundError from '@/errors/types/not-found';
+import { escapeAttribute, escapeText } from 'entities';
 
-const profileUrl = (user: string) => `https://www.threads.net/@${user}`;
-const threadUrl = (code: string) => `https://www.threads.net/t/${code}`;
-const instagramUrl = (user: string) => `https://i.instagram.com/api/v1/users/web_profile_info/?username=${user}`;
+import { parseDate } from '@/utils/parse-date';
+import { queryToBoolean } from '@/utils/readable-social';
 
-const apiUrl = 'https://www.threads.net/api/graphql';
-// const PROFILE_QUERY = 23_996_318_473_300_828; // no longer works
-const THREADS_QUERY = 6_232_751_443_445_612;
-const REPLIES_QUERY = 6_307_072_669_391_286;
-const USER_AGENT = 'Barcelona 289.0.0.77.109 Android';
-const appId = '238260118697367';
-const asbdId = '129477';
+export const profileUrl = (user: string) => `https://www.threads.com/@${user}`;
+export const threadUrl = (code: string) => `https://www.threads.com/t/${code}`;
 
-const extractTokens = async (user): Promise<{ lsd: string }> => {
-    const response = await ofetch(profileUrl(user), {
-        headers: {
-            'User-Agent': USER_AGENT,
-            'X-IG-App-ID': appId,
-        },
-    });
-    const $ = load(response);
-
-    const data = $('script:contains("LSD"):first').text();
-
-    const lsd = data.match(/"LSD",\[],{"token":"([\w@-]+)"},/)?.[1];
-    if (!lsd) {
-        throw new NotFoundError('LSD token not found');
+export const getPubDate = (takenAt?: number | string): Date | undefined => {
+    if ((typeof takenAt !== 'number' && typeof takenAt !== 'string') || (typeof takenAt === 'string' && !takenAt.trim()) || !Number.isFinite(Number(takenAt))) {
+        return undefined;
     }
-
-    // const userId = data.match(/{"user_id":"(\d+)"},/)?.[1];
-
-    const ret = { lsd };
-    return ret;
+    const date = parseDate(takenAt, 'X');
+    return Number.isFinite(date.getTime()) ? date : undefined;
 };
 
-const makeHeader = (user: string, lsd: string) => ({
-    Accept: '*/*',
-    Host: 'www.threads.net',
-    Origin: 'https://www.threads.net',
-    Referer: profileUrl(user),
-    'User-Agent': USER_AGENT,
-    'X-FB-LSD': lsd,
-    'X-IG-App-ID': appId,
-    'Sec-Fetch-Site': 'same-origin',
+export interface ThreadItem {
+    post: {
+        user?: {
+            username: string;
+            full_name: string;
+            profile_pic_url: string;
+        };
+        taken_at?: number;
+        code: string;
+        caption?: {
+            text: string;
+        };
+    };
+}
+
+const findThreadItems = (node, acc: ThreadItem[] = []): ThreadItem[] => {
+    if (node instanceof Object) {
+        if (Array.isArray(node.thread_items)) {
+            acc.push(...node.thread_items);
+        }
+        for (const value of Object.values(node)) {
+            findThreadItems(value, acc);
+        }
+    }
+    return acc;
+};
+
+export const extractThreadItems = ($: CheerioAPI): ThreadItem[] => {
+    let threadsData: ThreadItem[] = [];
+    $('script[data-sjs]:contains("thread_items")').each((_, script) => {
+        threadsData = findThreadItems(JSON.parse($(script).text()));
+        return threadsData.length === 0;
+    });
+    return threadsData;
+};
+
+interface Profile {
+    username: string;
+    full_name: string;
+    biography: string;
+    profile_pic_url: string;
+}
+
+const findProfile = (node): Profile | undefined => {
+    if (!(node instanceof Object)) {
+        return;
+    }
+    if ('biography' in node) {
+        return node;
+    }
+    for (const value of Object.values(node)) {
+        const profile = findProfile(value);
+        if (profile) {
+            return profile;
+        }
+    }
+};
+
+export const extractProfile = ($: CheerioAPI): Profile | undefined => {
+    let profile: Profile | undefined;
+    $('script[data-sjs]:contains("biography")').each((_, script) => {
+        profile = findProfile(JSON.parse($(script).text()));
+        return !profile;
+    });
+    return profile;
+};
+
+export const parseRouteOptions = (params: URLSearchParams) => ({
+    showAuthorInTitle: queryToBoolean(params.get('showAuthorInTitle')) ?? true,
+    showAuthorInDesc: queryToBoolean(params.get('showAuthorInDesc')) ?? true,
+    showAuthorAvatarInDesc: queryToBoolean(params.get('showAuthorAvatarInDesc')) ?? false,
+    showQuotedInTitle: queryToBoolean(params.get('showQuotedInTitle')) ?? true,
+    showQuotedAuthorAvatarInDesc: queryToBoolean(params.get('showQuotedAuthorAvatarInDesc')) ?? false,
+    showEmojiForQuotesAndReply: queryToBoolean(params.get('showEmojiForQuotesAndReply')) ?? true,
+    replies: queryToBoolean(params.get('replies')) ?? false,
 });
 
-// the formal way always reachs the rate limit, so use instagram api to get user id instead
-const getUserId = (user: string, lsd: string): Promise<string> =>
-    cache.tryGet(`threads:userId:${user}`, async () => {
-        const pathName = `/@${user}`;
-        const payload: any = {
-            'route_urls[0]': pathName,
-            __a: '1',
-            __comet_req: '29',
-            lsd,
-        };
-        const response = await ofetch('https://www.threads.net/ajax/bulk-route-definitions/', {
-            method: 'POST',
-            headers: {
-                ...makeHeader(user, lsd),
-                'content-type': 'application/x-www-form-urlencoded',
-                'X-ASBD-ID': asbdId,
-            },
-            body: new URLSearchParams(payload).toString(),
-            parseResponse: (txt) => destr(txt.slice(9)), // remove "for (;;);"
-        });
-
-        let userId = response.payload.payloads[pathName].result.exports.rootView.props.user_id;
-
-        if (!userId) {
-            const fallbackResponse = await ofetch(instagramUrl(user), {
-                headers: makeHeader(user, lsd),
-            });
-
-            if (!fallbackResponse?.data?.user) {
-                throw new NotFoundError('Instagram getUser API response is invalid');
-            }
-
-            userId = fallbackResponse.data.user.id;
-            if (!userId) {
-                throw new NotFoundError('User ID not found in Instagram getUser API response');
-            }
-        }
-
-        return userId;
-    });
-
 const hasMedia = (post) => post.image_versions2 || post.carousel_media || post.video_versions;
-const buildMedia = (post) => {
-    let html = '';
 
-    if (post.carousel_media) {
-        for (const media of post.carousel_media) {
-            const firstImage = media.image_versions2?.candidates[0];
-            const firstVideo = media.video_versions?.[0];
-            if (firstVideo) {
-                html += `<video controls autoplay loop poster="${firstImage.url}">`;
-                html += `<source src="${firstVideo.url}"/>`;
-                html += '</video>';
-            } else {
-                html += `<img src="${firstImage.url}"/>`;
-            }
-        }
-    } else {
-        const mainImage = post.image_versions2?.candidates?.[0];
-        const mainVideo = post.video_versions?.[0];
-        if (mainImage) {
-            if (mainVideo) {
-                html += `<video controls autoplay loop poster="${mainImage.url}">`;
-                html += `<source src="${mainVideo.url}"/>`;
-                html += '</video>';
-            } else {
-                html += `<img src="${mainImage.url}"/>`;
-            }
-        }
+const buildMediaItem = (media) => {
+    const image = media.image_versions2?.candidates?.[0];
+    const video = media.video_versions?.[0];
+    if (video?.url) {
+        const poster = image?.url ? ` poster="${escapeAttribute(image.url)}"` : '';
+        return `<video controls autoplay loop${poster}><source src="${escapeAttribute(video.url)}"/></video>`;
     }
-
-    return html;
+    return image?.url ? `<img src="${escapeAttribute(image.url)}"/>` : '';
 };
 
-const buildContent = (item, options) => {
+const buildMedia = (post) => (post.carousel_media ?? [post]).map((media) => buildMediaItem(media)).join('');
+
+export const buildContent = (item, options) => {
     let title = '';
     let description = '';
     const quotedPost = item.post.text_post_app_info?.share_info?.quoted_post;
@@ -139,9 +122,9 @@ const buildContent = (item, options) => {
     if (options.showAuthorInDesc) {
         description += '<p>';
         if (options.showAuthorAvatarInDesc) {
-            description += `<img src="${item.post.user?.profile_pic_url}" width="48px" height="48px"> `;
+            description += `<img src="${escapeAttribute(item.post.user?.profile_pic_url ?? '')}" width="48px" height="48px"> `;
         }
-        description += `<strong>@${item.post.user?.username}</strong>`;
+        description += `<strong>@${escapeText(item.post.user?.username ?? '')}</strong>`;
         if (embededPost) {
             description += options.showEmojiForQuotesAndReply ? ' 🔁' : ' quoted';
         } else if (isReply) {
@@ -152,7 +135,7 @@ const buildContent = (item, options) => {
 
     if (item.post.caption?.text) {
         title += item.post.caption?.text;
-        description += `<p>${item.post.caption?.text}</p>`;
+        description += `<p>${escapeText(item.post.caption.text)}</p>`;
     }
 
     if (hasMedia(item.post)) {
@@ -166,19 +149,20 @@ const buildContent = (item, options) => {
             title += `"${embededPost.caption?.text}"`;
         }
         description += '<blockquote>';
-        description += `<p>${embededPost.caption?.text}</p>`;
+        description += `<p>${escapeText(embededPost.caption?.text ?? '')}</p>`;
         if (hasMedia(embededPost)) {
             description += `<p>${buildMedia(embededPost)}</p>`;
         }
         description += '— ';
         if (options.showQuotedAuthorAvatarInDesc) {
-            description += `<img src="${embededPost.user?.profile_pic_url}" width="24px" height="24px"> `;
+            description += `<img src="${escapeAttribute(embededPost.user?.profile_pic_url ?? '')}" width="24px" height="24px"> `;
         }
-        description += `@${embededPost.user?.username} — `;
-        description += `<a href="${threadUrl(embededPost.code)}">${dayjs(embededPost.taken_at, 'X').toString()}</a>`;
+        description += `@${escapeText(embededPost.user?.username ?? '')}`;
+        const quotedDate = getPubDate(embededPost.taken_at);
+        if (quotedDate) {
+            description += ` — <a href="${escapeAttribute(threadUrl(embededPost.code))}">${escapeText(dayjs(quotedDate).toString())}</a>`;
+        }
         description += '</blockquote>';
     }
     return { title, description };
 };
-
-export { apiUrl, profileUrl, threadUrl, THREADS_QUERY, REPLIES_QUERY, USER_AGENT, extractTokens, getUserId, makeHeader, hasMedia, buildMedia, buildContent };

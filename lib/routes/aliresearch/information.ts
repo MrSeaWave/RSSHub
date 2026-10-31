@@ -1,12 +1,13 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import timezone from '@/utils/timezone';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/information/:type?',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/aliresearch/information',
     parameters: { type: '类型，见下表，默认为新闻' },
     features: {
@@ -28,12 +29,12 @@ export const route: Route = {
     handler,
     url: 'aliresearch.com/cn/information',
     description: `| 新闻 | 观点 | 案例 |
-  | ---- | ---- | ---- |`,
+| ---- | ---- | ---- |`,
 };
 
 async function handler(ctx) {
     const type = ctx.req.param('type') ?? '新闻';
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 50;
+    const limit = getRouteLimit(ctx, 50);
 
     const rootUrl = 'http://www.aliresearch.com';
     const currentUrl = `${rootUrl}/cn/information`;
@@ -52,7 +53,7 @@ async function handler(ctx) {
     let items = response.data.data.slice(0, limit).map((item) => ({
         title: item.articleCode,
         author: item.author,
-        pubDate: timezone(parseDate(item.gmtCreated), +8),
+        pubDate: timezone(parseDate(item.gmtCreated), 8),
         link: `${rootUrl}/ch/information/informationdetails?articleCode=${item.articleCode}`,
     }));
 

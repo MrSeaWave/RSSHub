@@ -1,7 +1,8 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
-import iconv from 'iconv-lite';
 import { load } from 'cheerio';
+import iconv from 'iconv-lite';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -16,6 +17,7 @@ export const route: Route = {
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
+        nsfw: true,
     },
     radar: [
         {
@@ -29,7 +31,7 @@ export const route: Route = {
 
 async function handler(ctx) {
     const id = ctx.req.param('id');
-    const baseUrl = `https://www.laimanhua8.com`;
+    const baseUrl = 'https://www.laimanhua8.com';
     const link = `${baseUrl}/kanmanhua/${id}/`;
 
     const { data: response } = await got(link, {
@@ -39,18 +41,23 @@ async function handler(ctx) {
     const charset = $('meta[http-equiv="Content-Type"]')
         .attr('content')
         ?.match(/charset=(.*)/)?.[1];
-    if (charset?.toLowerCase() !== 'utf-8') {
-        $ = load(iconv.decode(response, charset ?? 'utf-8'));
+    if (charset && charset.toLowerCase() !== 'utf-8') {
+        $ = load(iconv.decode(response, charset));
     }
 
+    const updateTime = $('head meta[property="og:novel:update_time"]').attr('content');
     const items = $('.plist a')
         .toArray()
-        .map((item, index) => {
-            item = $(item);
+        .flatMap((item, index) => {
+            const $item = $(item);
+            const href = $item.attr('href');
+            if (!href) {
+                return [];
+            }
             return {
-                title: item.attr('title'),
-                link: `${baseUrl}${item.attr('href')}`,
-                pubDate: index === 0 ? parseDate($('head meta[property="og:novel:update_time"]').attr('content')) : null,
+                title: $item.attr('title')!,
+                link: new URL(href, link).href,
+                pubDate: index === 0 && updateTime ? parseDate(updateTime) : undefined,
                 author: $('head meta[property="og:novel:author"]').attr('content'),
             };
         });

@@ -1,6 +1,7 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -17,7 +18,7 @@ export const route: Route = {
         supportScihub: false,
     },
     name: 'Download',
-    maintainers: [],
+    maintainers: ['nczitzk'],
     handler,
 };
 
@@ -35,16 +36,20 @@ async function handler(ctx) {
     const $ = load(response.data);
 
     const version = $('#WD_lblVersionSelected').text();
+    if (!version) {
+        throw new Error('Unable to find the software version on WD Support. The download page may have changed.');
+    }
+    const date = parseDate($('#WD_lblReleaseDateSelected').text(), 'D/M/YYYY', true);
 
     const items = [
         {
             title: version,
             link: `${currentUrl}#${version}`,
             enclosure_url: $('#WD_hlDownloadFWSelected').attr('href'),
-            pubDate: parseDate($('#WD_lblReleaseDateSelected').text(), 'D/M/YYYY'),
+            pubDate: Number.isFinite(date.getTime()) ? date : undefined,
             description: $('.toggleInner')
                 .html()
-                .replace(/style="color:White;"/, ''),
+                ?.replace(/style="color:White;"/, ''),
         },
     ];
 

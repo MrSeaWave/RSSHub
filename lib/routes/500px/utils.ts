@@ -1,7 +1,6 @@
-import ofetch from '@/utils/ofetch';
-import cache from '@/utils/cache';
-import { load } from 'cheerio';
 import { config } from '@/config';
+import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
 
 const baseUrl = 'https://500px.com.cn';
 
@@ -25,62 +24,12 @@ const headers = {
     'X-Tingyun-Id': `Fm3hXcTiLT8;r=${Date.now() % 1e8}`,
 };
 
-const getUserInfoFromUsername = (username) =>
-    cache.tryGet(`500px:user:${username}`, async () => {
-        const data = await ofetch(`${baseUrl}/${username}`);
-        const $ = load(data);
-        return JSON.parse(
-            $('script[type="text/javascript"]')
-                .text()
-                .match(/var cur_user = new Object\((.*?)\);/)?.[1] || '{}'
-        );
-    });
-
-const getUserInfoFromId = (id) =>
-    cache.tryGet(`500px:user:indexInfo:${id}`, async () => {
-        const data = await ofetch(`${baseUrl}/community/v2/user/indexInfo`, {
-            headers: {
-                ...headers,
-            },
-            query: {
-                queriedUserId: id,
-            },
-        });
-        return data.data;
-    });
-
-const getUserWorks = (id, limit) =>
-    cache.tryGet(
-        `500px:user:profile:${id}`,
-        async () => {
-            const data = await ofetch(`${baseUrl}/community/v2/user/profile`, {
-                headers: {
-                    ...headers,
-                },
-                query: {
-                    resourceType: '0,2,4',
-                    imgsize: 'p1,p2,p3,p4',
-                    queriedUserId: id,
-                    startTime: '',
-                    page: 1,
-                    size: limit,
-                    type: 'json',
-                },
-            });
-            return data;
-        },
-        config.cache.routeExpire,
-        false
-    );
-
 const getTribeDetail = (id) =>
     cache.tryGet(
         `500px:tribeDetail:${id}`,
         async () => {
             const data = await ofetch(`${baseUrl}/community/tribe/tribeDetail`, {
-                headers: {
-                    ...headers,
-                },
+                headers,
                 query: {
                     tribeId: id,
                 },
@@ -93,12 +42,10 @@ const getTribeDetail = (id) =>
 
 const getTribeSets = (id, limit) =>
     cache.tryGet(
-        `500px:tribeSets:${id}`,
+        `500px:tribeSets:${id}:${limit}`,
         async () => {
             const data = await ofetch(`${baseUrl}/community/tribe/getTribeSetsV2`, {
-                headers: {
-                    ...headers,
-                },
+                headers,
                 query: {
                     tribeId: id,
                     privacy: 1,
@@ -113,4 +60,4 @@ const getTribeSets = (id, limit) =>
         false
     );
 
-export { baseUrl, getUserInfoFromUsername, getUserInfoFromId, getUserWorks, getTribeDetail, getTribeSets };
+export { baseUrl, getTribeDetail, getTribeSets };

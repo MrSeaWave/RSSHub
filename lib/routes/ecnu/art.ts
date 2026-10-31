@@ -1,0 +1,57 @@
+import { load } from 'cheerio';
+
+import { fetchItems } from '@/routes/ecnu/utils';
+import type { DataItem, Route } from '@/types';
+import cache from '@/utils/cache';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
+
+const type = (filename) => filename.split('.').pop();
+
+export const route: Route = {
+    path: '/art',
+    categories: ['university'],
+    example: '/ecnu/art',
+    radar: [
+        {
+            source: ['art.ecnu.edu.cn', 'art.ecnu.edu.cn/tzggwzpw/list.htm'],
+            target: '/art',
+        },
+    ],
+    name: '美术学院通知公告',
+    maintainers: ['FrozenStarrrr', 'ChiyoYuki', 'ECNU-minus'],
+    handler: async () => {
+        const baseUrl = 'https://art.ecnu.edu.cn/';
+
+        const response = await got(`${baseUrl}tzggwzpw/list.htm`);
+        const $ = load(response.data);
+        const links = $('ul.data-list > li')
+            .toArray()
+            .map((el): DataItem & { link: string } => ({
+                pubDate: timezone(parseDate($(el).find('span').text()), 8),
+                link: new URL($(el).find('a').attr('href')!, baseUrl).href,
+                title: $(el).find('a').text(),
+            }));
+        const items = await fetchItems(links, (item) =>
+            cache.tryGet(item.link, async () => {
+                if (type(item.link) === 'htm') {
+                    const { data } = await got(item.link);
+                    const $ = load(data);
+                    const $read = $('div.wp_articlecontent');
+                    item.description = $read.html();
+                    return item;
+                }
+                // file to download
+                item.description = '请到原网页访问';
+                return item;
+            })
+        );
+
+        return {
+            title: '美术学院通知公告',
+            link: 'https://art.ecnu.edu.cn/tzggwzpw/list.htm',
+            item: items,
+        };
+    },
+};

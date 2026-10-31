@@ -1,6 +1,6 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { config } from '@/config';
+import type { Route } from '@/types';
+import got from '@/utils/got';
 import md5 from '@/utils/md5';
 import { parseDate } from '@/utils/parse-date';
 
@@ -53,7 +53,6 @@ async function handler(ctx) {
     }));
 
     return {
-        allowEmpty: true,
         title: `${user}'s starred repositories`,
         link: host,
         description: `${user}'s starred repositories`,

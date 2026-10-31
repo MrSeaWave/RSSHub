@@ -1,18 +1,18 @@
-import { Route } from '@/types';
-import { getCurrentPath } from '@/utils/helpers';
-const __dirname = getCurrentPath(import.meta.url);
+import { load } from 'cheerio';
 
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { DataItem, Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
-import timezone from '@/utils/timezone';
 import { parseDate } from '@/utils/parse-date';
-import { art } from '@/utils/render';
-import path from 'node:path';
+import { getRouteLimit } from '@/utils/route-limit';
+import timezone from '@/utils/timezone';
+
+import { renderDescription } from './templates/description';
 
 export const route: Route = {
     path: '/:language/news/:category?',
-    categories: ['new-media', 'popular'],
+    categories: ['new-media'],
     example: '/dn/en-us/news',
     parameters: { language: 'Language, see below', category: 'Category, see below, The Latest by default' },
     features: {
@@ -28,23 +28,30 @@ export const route: Route = {
     handler,
     description: `#### Language
 
-  | English | 中文  |
-  | ------- | ----- |
-  | en-us   | zh-cn |
+| English | 中文  |
+| ------- | ----- |
+| en-us   | zh-cn |
 
-  #### Category
+#### Category
 
-  | English Category     | 中文分类 | Category id |
-  | -------------------- | -------- | ----------- |
-  | The Latest           | 最新     |             |
-  | Industry Information | 行业资讯 | category-1  |
-  | Knowledge            | 域名知识 | category-2  |
-  | Investment           | 域名投资 | category-3  |`,
+| English Category     | 中文分类 | Category id |
+| -------------------- | -------- | ----------- |
+| The Latest           | 最新     |             |
+| Industry Information | 行业资讯 | category-1  |
+| Knowledge            | 域名知识 | category-2  |
+| Investment           | 域名投资 | category-3  |`,
 };
 
 async function handler(ctx) {
     const { language, category = '' } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 10;
+    if (!['en-us', 'zh-cn'].includes(language)) {
+        throw new InvalidParameterError('Invalid language. Use en-us or zh-cn.');
+    }
+    if (category && !['category-1', 'category-2', 'category-3'].includes(category)) {
+        throw new InvalidParameterError('Invalid category. Use category-1, category-2, or category-3, or omit it for the latest news.');
+    }
+
+    const limit = getRouteLimit(ctx, 10);
 
     const rootUrl = 'https://dn.com';
     const currentUrl = new URL(`/${language}/news/${category}`, rootUrl).href;
@@ -53,31 +60,31 @@ async function handler(ctx) {
 
     const $ = load(response);
 
-    let items = $('a.list-item')
+    let items = $('.news-list-item, .news-lists > .list-item')
         .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem & { link: string; category: string[] } => {
+            const $item = $(item);
 
-            const image = item.find('div.img img');
+            const image = $item.find('.news-item-cover img');
 
             return {
-                title: item.find('h2.ellipse2').text(),
-                link: new URL(item.prop('href'), rootUrl).href,
-                description: art(path.join(__dirname, 'templates/description.art'), {
-                    image: image
+                title: $item.find('.news-item-title, .list-item-title').text(),
+                link: new URL($item.find('.news-item-title, .list-item-title').attr('href')!, rootUrl).href,
+                description: renderDescription({
+                    image: image.length
                         ? {
-                              src: image.prop('src'),
+                              src: image.prop('src')!,
                               alt: image.prop('alt'),
                           }
                         : undefined,
-                    abstracts: item.find('p.abstract').html(),
+                    abstracts: $item.find('.news-item-desc, .list-item-desc').html() ?? undefined,
                 }),
-                category: item
-                    .find('span.cat')
+                category: $item
+                    .find('.news-item-category, .list-item-category')
                     .toArray()
                     .map((c) => $(c).text()),
-                pubDate: timezone(parseDate(item.find('span.time').text()), +8),
+                pubDate: timezone(parseDate($item.find('.news-item-date, .list-item-date').text().trim(), language === 'en-us' ? 'DD MMM YYYY hh:mm:ss A' : 'YYYY-MM-DD HH:mm:ss', 'en'), 8),
             };
         });
 
@@ -88,37 +95,34 @@ async function handler(ctx) {
 
                 const content = load(detailResponse);
 
-                item.title = content('h1.tit').text();
-                item.description = art(path.join(__dirname, 'templates/description.art'), {
-                    abstracts: content('div.abstract').html(),
-                    description: content('div.detail').html(),
-                });
-                item.author = content('span.author')
+                item.title = content('.news-detail-title').text();
+                item.description = content('.news-detail-content').html() ?? undefined;
+                item.author = content('.news-detail-meta-item.author span')
                     .text()
-                    .replace(/(By|作者)\s/, '');
+                    .replace(/^(By|作者)[：:]\s*/, '');
                 item.category = [
                     ...item.category,
-                    ...content('div.tags p a')
+                    ...content('.news-detail-tag')
                         .toArray()
                         .map((c) => content(c).text()),
                 ];
-                item.pubDate = timezone(parseDate(content('span.date').text()), +8);
+                item.pubDate = timezone(parseDate(content('.news-detail-meta-item.date span').text().trim(), language === 'en-us' ? 'DD MMM YYYY hh:mm:ss A' : 'YYYY-MM-DD HH:mm:ss', 'en'), 8);
 
                 return item;
             })
         )
     );
 
-    const title = $('a.logo img').prop('alt');
-    const icon = $('link[rel="icon"]').prop('href');
+    const title = $('a.logo').attr('title') ?? 'DN.com';
+    const iconPath = $('link[rel="icon"]').attr('href');
+    const icon = iconPath ? new URL(iconPath, rootUrl).href : undefined;
 
     return {
         item: items,
-        title: `${title} - ${$('div.group a.active').text()}`,
+        title: `${title} - ${$('.news-category-item.active').text()}`,
         link: currentUrl,
         description: $('meta[name="description"]').prop('content'),
-        language: $('html').prop('lang'),
-        image: new URL($('a.logo img').prop('src'), rootUrl).href,
+        language: $('html').prop('lang') as Language,
         icon,
         logo: icon,
         subtitle: $('title').text(),

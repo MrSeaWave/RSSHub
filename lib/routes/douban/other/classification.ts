@@ -1,10 +1,10 @@
-import { Route } from '@/types';
+import type { Route } from '@/types';
 import got from '@/utils/got';
 
 export const route: Route = {
     path: '/movie/classification/:sort?/:score?/:tags?',
     categories: ['social-media'],
-    example: '/douban/movie/classification/R/7.5/Netflix,2020',
+    example: '/douban/movie/classification/R/6/Netflix,2020',
     parameters: { sort: '排序方式，默认为U', score: '最低评分，默认不限制', tags: '分类标签，多个标签之间用英文逗号分隔，常见的标签到豆瓣电影的分类页面查看，支持自定义标签' },
     features: {
         requireConfig: false,
@@ -14,7 +14,7 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    name: '豆瓣电影分类',
+    name: '电影分类',
     maintainers: ['zzwab'],
     handler,
     description: `排序方式可选值如下
@@ -26,7 +26,7 @@ export const route: Route = {
 
 async function handler(ctx) {
     const sort = ctx.req.param('sort') || 'U';
-    const score = Number.parseFloat(ctx.req.param('score')) || 0;
+    const score = Number(ctx.req.param('score')) || 0;
     const tags = ctx.req.param('tags') || '';
 
     const response = await got({
@@ -35,13 +35,16 @@ async function handler(ctx) {
     });
 
     const movies = response.data.data;
+    if (!Array.isArray(movies)) {
+        throw new TypeError(`Douban returned no movie classification data. ${response.data.msg || 'Check whether anonymous access is available.'}`);
+    }
 
     return {
         title: `豆瓣电影分类${score ? `超过 ${score} 分的` : ''}影视`,
-        link: `https://movie.douban.com/tag/#/?sort=U&range=0,10&tags=`,
+        link: 'https://movie.douban.com/tag/#/?sort=U&range=0,10&tags=',
         item: movies
             .map((item) => {
-                const itemScore = Number.parseFloat(item.rate) || 0;
+                const itemScore = Number(item.rate) || 0;
 
                 return itemScore >= score
                     ? {
@@ -55,7 +58,6 @@ async function handler(ctx) {
                       }
                     : null;
             })
-            .filter(Boolean),
-        allowEmpty: true,
+            .filter((item) => item !== null),
     };
 }

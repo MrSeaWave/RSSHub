@@ -1,6 +1,10 @@
-import { Route } from '@/types';
-import got from '@/utils/got';
 import { load } from 'cheerio';
+
+import { config } from '@/config';
+import InvalidParameterError from '@/errors/types/invalid-parameter';
+import type { Route } from '@/types';
+import cache from '@/utils/cache';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -16,12 +20,12 @@ export const route: Route = {
         requirePuppeteer: false,
         antiCrawler: false,
         supportBT: false,
-        supportPodcast: false,
+        supportPodcast: true,
         supportScihub: false,
     },
     radar: [
         {
-            source: ['podcasts.apple.com/:region/podcast/:id'],
+            source: ['podcasts.apple.com/:region/podcast/:showName/:id', 'podcasts.apple.com/:region/podcast/:id'],
         },
     ],
     name: '播客',
@@ -32,33 +36,67 @@ export const route: Route = {
 
 async function handler(ctx) {
     const { id, region } = ctx.req.param();
-    const link = `https://podcasts.apple.com/${region || `cn`}/podcast/${id}`;
-    const response = await got({
-        method: 'get',
-        url: link,
+    const numericId = id.match(/^id(\d+)$/)?.[1];
+    if (!numericId) {
+        throw new InvalidParameterError('Invalid podcast ID. Use id followed by the numeric ID from the Apple Podcasts show URL.');
+    }
+    const baseUrl = 'https://podcasts.apple.com';
+    const link = `${baseUrl}/${region || 'cn'}/podcast/${id}`;
+
+    const response = await ofetch(link);
+
+    const $ = load(response);
+
+    const rawServerData = JSON.parse($('#serialized-server-data').text());
+    const serverData = (Array.isArray(rawServerData) ? rawServerData : rawServerData.data)[0].data;
+    const header = serverData.shelves.find((item) => item.contentType === 'showHeaderRegular').items[0];
+
+    const bearerToken = await cache.tryGet(
+        'apple:podcast:bearer',
+        async () => {
+            const moduleAddress = new URL($('head script[type="module"]').attr('src')!, baseUrl).href;
+            const modulesResponse = await ofetch<string>(moduleAddress, {
+                parseResponse: (txt) => txt,
+            });
+            const bearerToken = modulesResponse.match(/["'](eyJ[\w-]+\.[\w-]+\.[\w-]+)["']/)?.[1];
+            if (!bearerToken) {
+                throw new Error('Apple Podcasts public API token was not found in the current client module');
+            }
+
+            return bearerToken;
+        },
+        config.cache.contentExpire,
+        false
+    );
+
+    const episodeReponse = await ofetch(`https://amp-api.podcasts.apple.com/v1/catalog/${region || 'cn'}/podcasts/${numericId}/episodes`, {
+        query: {
+            'extend[podcast-channels]': 'editorialArtwork,subscriptionArtwork,subscriptionOffers',
+            limit: 25,
+            with: 'entitlements',
+            l: 'en-US',
+        },
+        headers: {
+            Authorization: `Bearer ${bearerToken}`,
+            Origin: baseUrl,
+        },
     });
 
-    const $ = load(response.data);
-
-    const serializedServerData = JSON.parse($('#serialized-server-data').text());
-
-    const seoEpisodes = serializedServerData[0].data.seoData.schemaContent.workExample;
-    const originEpisodes = serializedServerData[0].data.shelves.find((item) => item.contentType === 'episode').items;
-    const header = serializedServerData[0].data.shelves.find((item) => item.contentType === 'showHeaderRegular').items[0];
-
-    const episodes = originEpisodes.map((item) => {
+    const episodes = episodeReponse.data.map(({ attributes: item }) => {
         // Try to keep line breaks in the description
-        const matchedSeoEpisode = seoEpisodes.find((seoEpisode) => seoEpisode.name === item.title) || null;
-        const episodeDescription = (matchedSeoEpisode ? matchedSeoEpisode.description : item.summary).replaceAll('\n', '<br>');
+        const offer = item.offers[0];
 
         return {
-            title: item.title,
-            enclosure_url: item.playAction.episodeOffer.streamUrl,
-            enclosure_type: 'audio/mp4',
-            itunes_duration: item.duration,
-            link: item.playAction.episodeOffer.storeUrl,
-            pubDate: parseDate(item.releaseDate),
-            description: episodeDescription,
+            title: item.name,
+            enclosure_url: item.assetUrl || offer.hlsUrl,
+            enclosure_type: item.assetUrl ? 'audio/mp4' : 'application/vnd.apple.mpegurl',
+            itunes_duration: (item.durationInMilliseconds || offer.durationInMilliseconds) / 1000,
+            link: item.url,
+            pubDate: parseDate(item.releaseDateTime),
+            description: item.description.standard.replaceAll('\n', '<br>'),
+            author: item.artistName,
+            itunes_item_image: item.artwork.url.replace(/\{w\}x\{h\}(?:\{c\}|bb)\.\{f\}/, '3000x3000bb.webp'),
+            category: item.genreNames,
         };
     });
 
@@ -67,6 +105,8 @@ async function handler(ctx) {
         link: header.contextAction.podcastOffer.storeUrl,
         itunes_author: header.contextAction.podcastOffer.author,
         item: episodes,
-        description: header.description.replaceAll('\n', ' '),
+        description: header.description?.replaceAll('\n', ' '),
+        image: header.contextAction.podcastOffer.artwork.template.replace(/\{w\}x\{h\}(?:\{c\}|bb)\.\{f\}/, '3000x3000bb.webp'),
+        itunes_category: header.metadata.find((d) => Object.hasOwn(d, 'category')).category?.title || header.metadata.find((d) => Object.hasOwn(d, 'category')).category,
     };
 }

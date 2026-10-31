@@ -1,9 +1,9 @@
-import { Route } from '@/types';
+import type { Data, Route } from '@/types';
 import cache from '@/utils/cache';
 import parser from '@/utils/rss-parser';
-import { load } from 'cheerio';
-import utils from './utils';
-import ofetch from '@/utils/ofetch';
+
+import { fetchBbcContent } from './utils';
+
 export const route: Route = {
     path: '/:site?/:channel?',
     name: 'News',
@@ -17,29 +17,31 @@ export const route: Route = {
     categories: ['traditional-media'],
     description: `Provides a better reading experience (full text articles) over the official ones.
 
-    Support major channels, refer to [BBC RSS feeds](https://www.bbc.co.uk/news/10628494). Eg, \`business\` for \`https://feeds.bbci.co.uk/news/business/rss.xml\`.
+Support major channels, refer to [BBC RSS feeds](https://www.bbc.co.uk/news/10628494). Eg, \`business\` for \`https://feeds.bbci.co.uk/news/business/rss.xml\`.
 
-    -   Channel contains sub-directories, such as \`https://feeds.bbci.co.uk/news/world/asia/rss.xml\`, replace \`/\` with \`-\`, \`/bbc/world-asia\`.`,
+- Channel contains sub-directories, such as \`https://feeds.bbci.co.uk/news/world/asia/rss.xml\`, replace \`/\` with \`-\`, \`/bbc/world-asia\`.`,
 };
 
-async function handler(ctx) {
-    let feed, title, link;
+async function handler(ctx): Promise<Data> {
+    let feed: Awaited<ReturnType<typeof parser.parseURL>>;
+    let title: string;
+    let link: string | undefined;
 
     // 为了向下兼容，这里 site 对应的是中文网文档中的 lang，英文网文档中的 channel
     // 英文网不会用到 channel
-    const { site, channel } = ctx.req.param();
+    const { site: siteParam, channel } = ctx.req.param();
+    const site = siteParam?.toLowerCase();
 
     if (site) {
-        switch (site.toLowerCase()) {
+        switch (site) {
             case 'chinese':
                 title = 'BBC News 中文网';
-
+                link = 'https://www.bbc.com/zhongwen/simp';
                 feed = await (channel ? parser.parseURL(`https://www.bbc.co.uk/zhongwen/simp/${channel}/index.xml`) : parser.parseURL('https://www.bbc.co.uk/zhongwen/simp/index.xml'));
                 break;
 
             case 'traditionalchinese':
                 title = 'BBC News 中文網';
-
                 feed = await (channel ? parser.parseURL(`https://www.bbc.co.uk/zhongwen/trad/${channel}/index.xml`) : parser.parseURL('https://www.bbc.co.uk/zhongwen/trad/index.xml'));
                 link = 'https://www.bbc.com/zhongwen/trad';
                 break;
@@ -57,52 +59,45 @@ async function handler(ctx) {
         link = 'https://www.bbc.co.uk/news';
     }
 
+    const seenLinks = new Set<string>();
+    const list = feed.items
+        .filter((item): item is typeof item & { link: string } => !!item?.link)
+        .map((item) => {
+            const link = item.link.split('?', 1)[0];
+            return {
+                ...item,
+                // https://www.bbc.co.uk/zhongwen/simp/index.xml returns trad regardless of lang parameter
+                // which requires manual fixing
+                link: site === 'chinese' ? item.link.replace('/trad', '/simp') : link,
+            };
+        })
+        .filter((item) => {
+            const canonicalLink = item.link.split('?', 1)[0];
+            if (seenLinks.has(canonicalLink)) {
+                return false;
+            }
+            seenLinks.add(canonicalLink);
+            return true;
+        });
     const items = await Promise.all(
-        feed.items
-            .filter((item) => item && item.link)
-            .map((item) =>
-                cache.tryGet(item.link, async () => {
-                    try {
-                        const linkURL = new URL(item.link);
-                        if (linkURL.hostname === 'www.bbc.com') {
-                            linkURL.hostname = 'www.bbc.co.uk';
-                        }
+        list.map((item) =>
+            cache.tryGet(item.link, async () => {
+                const linkURL = new URL(item.link);
+                if (linkURL.hostname === 'www.bbc.com') {
+                    linkURL.hostname = 'www.bbc.co.uk';
+                }
 
-                        const response = await ofetch(linkURL.href, {
-                            retryStatusCodes: [403],
-                        });
+                const { category, description } = await fetchBbcContent(linkURL.href, item);
 
-                        const $ = load(response);
-
-                        const path = linkURL.pathname;
-
-                        let description;
-
-                        switch (true) {
-                            case path.startsWith('/sport'):
-                                description = item.content;
-                                break;
-                            case path.startsWith('/sounds/play'):
-                                description = item.content;
-                                break;
-                            case path.startsWith('/news/live'):
-                                description = item.content;
-                                break;
-                            default:
-                                description = utils.ProcessFeed($);
-                        }
-
-                        return {
-                            title: item.title || '',
-                            description: description || '',
-                            pubDate: item.pubDate || new Date().toUTCString(),
-                            link: item.link,
-                        };
-                    } catch {
-                        return {} as Record<string, any>;
-                    }
-                })
-            )
+                return {
+                    title: item.title || '',
+                    description: description || '',
+                    pubDate: item.pubDate,
+                    link: item.link,
+                    category: category ?? item.categories ?? [],
+                };
+            })
+        )
     );
 
     return {
@@ -110,6 +105,7 @@ async function handler(ctx) {
         link,
         image: 'https://www.bbc.com/favicon.ico',
         description: title,
-        item: items.filter((item) => Object.keys(item).length > 0),
+        language: site === 'chinese' ? 'zh-CN' : site === 'traditionalchinese' ? 'zh-TW' : 'en',
+        item: items,
     };
 }

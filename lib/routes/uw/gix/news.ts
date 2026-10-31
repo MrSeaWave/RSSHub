@@ -1,7 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
+import { parseDate } from '@/utils/parse-date';
 
 const gixBaseURL = 'https://gixnetwork.org';
 
@@ -27,8 +30,8 @@ export const route: Route = {
     maintainers: ['dykderrick'],
     handler,
     description: `| Blog | In The News |
-  | ---- | ----------- |
-  | blog | inthenews   |`,
+| ---- | ----------- |
+| blog | inthenews   |`,
 };
 
 async function handler(ctx) {
@@ -49,6 +52,8 @@ async function handler(ctx) {
             feedTitle += 'In The News';
             listSelector += 'div.news-wrapper > section.news-list > article';
             break;
+        default:
+            throw new Error(`Unknown category: ${category}`);
     }
 
     const response = await got(newsURL);
@@ -58,33 +63,35 @@ async function handler(ctx) {
     const $ = load(data);
 
     const list = $(listSelector)
-        .map((index, item) => {
-            item = $(item);
-            const content = item.find('header').find('h2').find('a');
-            const time = item.find('header').find('span.h4').text();
+        .toArray()
+        .map((item): DataItem => {
+            const $item = $(item);
+            const content = $item.find('header').find('h2').find('a');
+            const time = $item.find('header').find('span.h4').text();
+
+            const timestamp = Date.parse(time);
 
             return {
-                // title: content.text(),
-                time,
+                pubDate: Number.isFinite(timestamp) ? parseDate(timestamp) : undefined,
                 link: content.attr('href'),
+                title: '',
             };
-        })
-        .get();
+        });
 
-    const itemContent = await Promise.all(
-        list.map((item) =>
-            cache.tryGet(item.link, async () => {
+    const itemContent = await pMap(
+        list,
+        async (item) => {
+            const details = await cache.tryGet<Pick<DataItem, 'title' | 'description'>>(item.link!, async () => {
                 const descriptionResponse = await got(item.link);
-
                 const content = load(descriptionResponse.data);
-
-                item.title = content('header.entry-header').find('h1').text();
-                item.description = content('div.entry-content').html();
-                item.pubDate = Date.parse(item.time);
-
-                return item;
-            })
-        )
+                return {
+                    title: content('header.entry-header').find('h1').text(),
+                    description: content('div.entry-content').html() ?? undefined,
+                };
+            });
+            return { ...item, title: details.title, description: details.description };
+        },
+        { concurrency: 3 }
     );
 
     return {

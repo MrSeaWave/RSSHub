@@ -1,8 +1,10 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 import timezone from '@/utils/timezone';
 
 export const route: Route = {
@@ -30,7 +32,7 @@ export const route: Route = {
 
 async function handler(ctx) {
     const id = ctx.req.param('id');
-    const limit = Number.parseInt(ctx.req.query('limit')) || 10;
+    const limit = getRouteLimit(ctx, 10);
 
     const baseUrl = 'https://www.hbooker.com';
 
@@ -40,21 +42,21 @@ async function handler(ctx) {
     const list = $('div.book-chapter-list ul li a')
         .slice(0, limit)
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
             return {
-                title: item.text(),
-                link: item.attr('href'),
+                title: $item.text(),
+                link: $item.attr('href'),
             };
         });
     const items = await Promise.all(
         list.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 const { data: response } = await got(item.link);
                 const $ = load(response);
 
                 const rawDate = $('div.read-hd p span').eq(2).text();
-                item.pubDate = timezone(parseDate(rawDate.replace('更新时间：', '')), +8);
+                item.pubDate = timezone(parseDate(rawDate.replace('更新时间：', '')), 8);
 
                 return item;
             })

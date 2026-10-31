@@ -1,6 +1,7 @@
-import { Route } from '@/types';
-import ofetch from '@/utils/ofetch';
 import { load } from 'cheerio';
+
+import type { Route } from '@/types';
+import ofetch from '@/utils/ofetch';
 import { parseRelativeDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -22,20 +23,26 @@ async function handler() {
     const items = $('#repo > ul > li > a')
         .toArray()
         .map((item) => {
-            const name = $(item).find('h2 span').first();
+            const name = $(item).find('h2 span');
             const link = $(item).attr('href');
-            const description = $(item).find('div p.break-words').first();
-            const pubDate = $(item).find('span:contains("Updated")').first();
+            const description = $(item).find('div p.break-words');
+            const date = $(item)
+                .find('span:contains("Updated")')
+                .first()
+                .text()
+                .trim()
+                .replace(/^Updated\s*/i, '');
 
             return {
                 title: name.text(),
                 link,
                 description: description.text(),
-                pubDate: parseRelativeDate(pubDate.text()),
+                pubDate: date ? parseRelativeDate(date) : undefined,
             };
         });
     return {
         title: 'ollama library',
+        language: 'en' as const,
         link: 'https://ollama.com/library',
         item: items,
     };

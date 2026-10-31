@@ -1,5 +1,6 @@
-import { DataItem, Route } from '@/types';
 import { load } from 'cheerio';
+
+import type { DataItem, Route } from '@/types';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
@@ -32,7 +33,7 @@ async function handler() {
 
     return {
         title: 'Devtrium',
-        language: 'en-us',
+        language: 'en-us' as const,
         item: items,
         link: 'https://devtrium.com',
     };
@@ -49,7 +50,7 @@ async function fetchPage() {
         title: post.title,
         link: `${baseUrl}/posts/${post.slug}`,
         description: post.description,
-        pubDate: parseDate(post.date),
+        pubDate: post.date ? parseDate(`${post.date}T00:00:00Z`) : undefined,
     }));
     return items;
 }

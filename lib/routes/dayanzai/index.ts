@@ -1,11 +1,21 @@
-import { Route } from '@/types';
+import { load } from 'cheerio';
+import pMap from 'p-map';
+
+import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { load } from 'cheerio';
 import { parseDate, parseRelativeDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
 
-const rootUrl = 'http://www.dayanzai.me/';
+const rootUrl = 'https://www.dayanzai.me/';
+const sourceHostname = new URL(rootUrl).hostname.replace(/^www\./, '');
+
+const fetchArticleBody = (link: string) =>
+    cache.tryGet(`dayanzai:article:${link}`, async () => {
+        const detailResponse = await got.get(link);
+        const content = load(detailResponse.data);
+        return content('div.intro-box').html();
+    });
 
 export const route: Route = {
     path: '/:category/:fulltext?',
@@ -22,16 +32,28 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['dayanzai.me/:category', 'dayanzai.me/:category/*'],
-            target: '/:category',
+            source: ['dayanzai.me/windows', 'dayanzai.me/windows/*'],
+            target: '/windows',
+        },
+        {
+            source: ['dayanzai.me/android', 'dayanzai.me/android/*'],
+            target: '/android',
+        },
+        {
+            source: ['dayanzai.me/tutorial', 'dayanzai.me/tutorial/*'],
+            target: '/tutorial',
+        },
+        {
+            source: ['dayanzai.me/other', 'dayanzai.me/other/*'],
+            target: '/other',
         },
     ],
     name: '分类',
-    maintainers: [],
+    maintainers: ['gl0zzy'],
     handler,
     description: `| 微软应用 | 安卓应用 | 教程资源 | 其他资源 |
-  | -------- | -------- | -------- | -------- |
-  | windows  | android  | tutorial | other    |`,
+| -------- | -------- | -------- | -------- |
+| windows  | android  | tutorial | other    |`,
 };
 
 async function handler(ctx) {
@@ -40,39 +62,46 @@ async function handler(ctx) {
     const response = await got.get(currentUrl);
     const $ = load(response.data);
     const lists = $('div.c-box > div > div.c-zx-list > ul > li');
-    const reg = /日期：(.*?(\s\(.*?\))?)\s/;
-    const list = lists
-        .map((index, item) => {
-            item = $(item).find('div');
-            let date = reg.exec(item.find('div.r > p.other').text())[1];
-            if (date.includes('周') || date.includes('月')) {
-                date = /\((.*?)\)/.exec(date)[1];
-                date = parseDate(date, 'MM-DD');
-            } else if (date.includes('年')) {
-                date = /\((.*?)\)/.exec(date)[1];
-                date = parseDate(date, 'YYYY-MM-DD');
-            } else {
-                date = parseRelativeDate(date);
-            }
-            return {
-                title: item.find('div.r > p.r-top > span > a').text(),
-                pubDate: timezone(date, +8),
-                description: item.find('div.r > p.desc').text(),
-                link: item.find('div.r > p.r-top > span > a').attr('href'),
-            };
-        })
-        .get();
+    const reg = /日期：(.*?(?:\s\(.*?\))?)\s/;
+    const relativeDates = new Map<string, Date>();
+    const list = lists.toArray().map((item) => {
+        const $item = $(item).find('div');
+        let date: string | Date = reg.exec($item.find('div.r > p.other').text())![1];
+        if (date.includes('周') || date.includes('月')) {
+            date = /\((.*?)\)/.exec(date)![1];
+            date = timezone(parseDate(date, 'MM-DD'), 8);
+        } else if (date.includes('年')) {
+            date = /\((.*?)\)/.exec(date)![1];
+            date = timezone(parseDate(date, 'YYYY-MM-DD'), 8);
+        } else {
+            const relativeDate = relativeDates.get(date) ?? parseRelativeDate(date);
+            relativeDates.set(date, relativeDate);
+            date = relativeDate;
+        }
+        return {
+            title: $item.find('div.r > p.r-top > span > a').text(),
+            author: /作者：(.*?)\s日期：/.exec($item.find('div.r > p.other').text())?.[1],
+            pubDate: date,
+            description: $item.find('div.r > p.desc').text(),
+            link: $item.find('div.r > p.r-top > span > a').attr('href'),
+            category: $item
+                .find('a[rel="tag"]')
+                .toArray()
+                .map((tag) => $(tag).text()),
+        };
+    });
     const items =
         fulltext === 'y'
-            ? await Promise.all(
-                  list.map((item) =>
-                      cache.tryGet(item.link, async () => {
-                          const detailResponse = await got.get(item.link);
-                          const content = load(detailResponse.data);
-                          item.description = content('div.intro-box').html();
+            ? await pMap(
+                  list,
+                  async (item) => {
+                      if (new URL(item.link!, rootUrl).hostname.replace(/^www\./, '') !== sourceHostname) {
                           return item;
-                      })
-                  )
+                      }
+                      const description = await fetchArticleBody(item.link!);
+                      return { ...item, description: description ?? item.description };
+                  },
+                  { concurrency: 3 }
               )
             : list;
 
